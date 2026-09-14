@@ -127,6 +127,24 @@ function togglePasswordVisibility() {
 }
 window.togglePasswordVisibility = togglePasswordVisibility;
 
+function getAuthErrorMessage(err) {
+    if (!err) return 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+    const msg = err.message || String(err);
+    if (msg.includes('Invalid login credentials')) {
+        return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
+    }
+    if (msg.includes('User already registered')) {
+        return 'อีเมลนี้ถูกใช้งานแล้ว กรุณาเข้าสู่ระบบ หรือใช้อีเมลอื่น';
+    }
+    if (msg.includes('Password should be at least')) {
+        return 'รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร';
+    }
+    if (msg.includes('Email not confirmed')) {
+        return 'อีเมลของคุณยังไม่ได้ทำการยืนยัน กรุณาตรวจสอบกล่องข้อความในอีเมลของคุณเพื่อกดลิงก์ยืนยัน';
+    }
+    return msg;
+}
+
 async function handleAuthSubmit(e) {
     e.preventDefault();
     if (!initSupabase()) {
@@ -159,21 +177,32 @@ async function handleAuthSubmit(e) {
                 Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ยินดีต้อนรับกลับเข้าสู่ระบบ', timer: 1500, showConfirmButton: false });
             }
         } else {
+            const redirectUrl = window.location.origin + window.location.pathname;
             const { data, error } = await supabaseClient.auth.signUp({
                 email,
                 password,
                 options: {
+                    emailRedirectTo: redirectUrl,
                     data: { display_name: display_name }
                 }
             });
             if (error) throw error;
             if (data.user) {
-                await loadUserProfileAndData(data.user);
-                Swal.fire('ลงทะเบียนสำเร็จ', 'ยินดีต้อนรับสมาชิกใหม่ ระบบได้สร้างพื้นที่งานให้แล้ว', 'success');
+                if (!data.session) {
+                    Swal.fire({
+                        title: 'สมัครสมาชิกสำเร็จ',
+                        text: 'ระบบได้ส่งอีเมลยืนยันตัวตนไปยัง ' + email + ' แล้ว กรุณากดลิงก์ยืนยันในอีเมลของคุณก่อนทำการเข้าสู่ระบบ',
+                        icon: 'info',
+                        confirmButtonText: 'ตกลง'
+                    });
+                } else {
+                    await loadUserProfileAndData(data.user);
+                    Swal.fire('ลงทะเบียนสำเร็จ', 'ยินดีต้อนรับสมาชิกใหม่ ระบบได้สร้างพื้นที่งานให้แล้ว', 'success');
+                }
             }
         }
     } catch (err) {
-        Swal.fire('เกิดข้อผิดพลาด', err.message, 'error');
+        Swal.fire('เกิดข้อผิดพลาด', getAuthErrorMessage(err), 'error');
     } finally {
         showLoading(false);
     }
@@ -340,7 +369,40 @@ async function loadUserProfileAndData(authUser) {
         showAuthOverlay(false);
         await syncJobsFromDB(true);
     } else {
-        throw new Error("ระบบไม่สามารถสร้างโปรไฟล์ได้ในขณะนี้ กรุณาลองล็อกอินใหม่อีกครั้ง");
+        // Fallback: If DB trigger did not execute or was delayed, attempt client-side creation
+        try {
+            const randomCode = Math.random().toString(36).substring(2, 8);
+            const fallbackProfile = {
+                id: authUser.id,
+                email: authUser.email || '',
+                display_name: authUser.user_metadata?.display_name || 'ผู้ใช้งาน',
+                user_code: randomCode,
+                team_id: authUser.id
+            };
+            const { data: createdProfile, error: insertErr } = await supabaseClient
+                .from('profiles')
+                .insert([fallbackProfile])
+                .select()
+                .maybeSingle();
+
+            if (createdProfile) {
+                currentUser = {
+                    id: authUser.id,
+                    email: authUser.email,
+                    name: createdProfile.display_name || 'ผู้ใช้ทั่วไป',
+                    user_code: createdProfile.user_code,
+                    team_id: createdProfile.team_id,
+                    category: localStorage.getItem('survey_current_cat') || 'ทั่วไป'
+                };
+                updateUserInfo();
+                showAuthOverlay(false);
+                await syncJobsFromDB(true);
+                return;
+            }
+        } catch (fbErr) {
+            console.error("Profile fallback creation error:", fbErr);
+        }
+        throw new Error("ระบบไม่สามารถสร้างโปรไฟล์ผู้ใช้งานได้ กรุณาลองล็อกอินใหม่อีกครั้ง หรือรัน schema.sql ใน Supabase");
     }
 }
 
@@ -5968,7 +6030,7 @@ function generateReport(jobs) {
         </div>
         
         <div class="footer">
-            หน้า ${index + 1} จาก ${jobs.length} | สร้างโดยระบบจัดเก็บข้อมูล Smart Survey
+            หน้า ${index + 1} จาก ${jobs.length} | สร้างโดยระบบจัดเก็บข้อมูล Vision TR
         </div>
     </div>
                 `;
@@ -6733,6 +6795,66 @@ async function v2PromptImport(sourceName) {
     return result.isConfirmed ? result.value : null;
 }
 
+function v2ExtractCoordinates(properties) {
+    if (!properties || typeof properties !== 'object') return null;
+    const keys = Object.keys(properties);
+    let latVal = null;
+    let lngVal = null;
+
+    const latKeys = [/^(lat|latitude|y|northing|n|ละติจูด|พิกัด[_\s]*n|พิกัด[_\s]*y)$/i];
+    const lngKeys = [/^(lng|lon|long|longitude|x|easting|e|ลองจิจูด|พิกัด[_\s]*e|พิกัด[_\s]*x)$/i];
+
+    for (const key of keys) {
+        const val = properties[key];
+        if (val === null || val === undefined || val === '') continue;
+        const num = Number(val);
+        if (!Number.isFinite(num)) continue;
+
+        if (latVal === null) {
+            for (const r of latKeys) {
+                if (r.test(key)) { latVal = num; break; }
+            }
+        }
+        if (lngVal === null) {
+            for (const r of lngKeys) {
+                if (r.test(key)) { lngVal = num; break; }
+            }
+        }
+    }
+
+    if (latVal !== null && lngVal !== null && Number.isFinite(latVal) && Number.isFinite(lngVal)) {
+        return { lat: latVal, lng: lngVal };
+    }
+    return null;
+}
+
+function parseCSVToFeatures(csvText) {
+    const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (lines.length < 2) return [];
+
+    const delimiter = csvText.includes('\t') ? '\t' : (csvText.includes(';') ? ';' : ',');
+    const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, ''));
+    
+    const features = [];
+    for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(delimiter).map(cell => cell.trim().replace(/^["']|["']$/g, ''));
+        if (row.length === 0 || (row.length === 1 && !row[0])) continue;
+
+        const props = {};
+        headers.forEach((h, idx) => {
+            props[h] = row[idx] !== undefined ? row[idx] : '';
+        });
+
+        const coords = v2ExtractCoordinates(props);
+        features.push({
+            type: 'Feature',
+            geometry: coords ? { type: 'Point', coordinates: [coords.lng, coords.lat] } : null,
+            properties: props
+        });
+    }
+    return features;
+}
+
 async function v2ImportFeatures(features, sourceName, sourceUrl = '') {
     const context = await v2PromptImport(sourceName);
     if (!context) return;
@@ -6753,8 +6875,11 @@ async function v2ImportFeatures(features, sourceName, sourceUrl = '') {
         features.forEach((feature, index) => {
             const properties = feature?.properties || (feature && !feature.geometry ? feature : {});
             let geometry = feature?.geometry;
-            if (!geometry && properties.lat !== undefined && properties.lng !== undefined) {
-                geometry = { type: 'Point', coordinates: [Number(properties.lng), Number(properties.lat)] };
+            if (!geometry) {
+                const coords = v2ExtractCoordinates(properties);
+                if (coords) {
+                    geometry = { type: 'Point', coordinates: [coords.lng, coords.lat] };
+                }
             }
             const center = v2CenterOfGeometry(geometry);
             if (!geometry || !center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return;
@@ -6772,14 +6897,23 @@ async function v2ImportFeatures(features, sourceName, sourceUrl = '') {
                 search_text: v2SearchText(properties)
             });
         });
-        if (rows.length === 0) throw new Error('ไม่พบ geometry หรือพิกัดที่ใช้งานได้ในไฟล์');
+        if (rows.length === 0) throw new Error('ไม่พบพิกัด (Lat, Lng) หรือ รูปแปลง (Geometry) ที่สามารถอ่านได้ในไฟล์');
         for (let index = 0; index < rows.length; index += 500) {
             const { error } = await supabaseClient.from('base_plots').insert(rows.slice(index, index + 500));
             if (error) throw error;
         }
         currentUser.category = group.name;
+
+        // Reset any search or district filters so all imported data is visible
+        const inpSearch = document.getElementById('inp-search');
+        const selAmphoe = document.getElementById('sel-amphoe');
+        const selTambon = document.getElementById('sel-tambon');
+        if (inpSearch) inpSearch.value = '';
+        if (selAmphoe) selAmphoe.value = '';
+        if (selTambon) selTambon.value = '';
+
         await syncJobsFromDB(true);
-        Swal.fire('นำเข้าสำเร็จ', `เพิ่ม Base Map “${context.mapName}” จำนวน ${rows.length} แปลง`, 'success');
+        Swal.fire('นำเข้าสำเร็จ', `เพิ่ม Base Map “${context.mapName}” จำนวน ${rows.length} แปลงเรียบร้อยแล้ว`, 'success');
     } catch (error) {
         console.error('V2 import error', error);
         Swal.fire('นำเข้าไม่สำเร็จ', error.message, 'error');
@@ -6792,8 +6926,28 @@ importData = async function (input) {
     const file = input?.files?.[0];
     if (!file) return;
     try {
-        const json = JSON.parse(await file.text());
-        const features = json.type === 'FeatureCollection' ? json.features : (Array.isArray(json) ? json : [json]);
+        const fileName = file.name || '';
+        const ext = fileName.split('.').pop().toLowerCase();
+        let features = [];
+
+        if (ext === 'csv' || ext === 'txt') {
+            const text = await file.text();
+            features = parseCSVToFeatures(text);
+        } else {
+            const text = await file.text();
+            let json;
+            try {
+                json = JSON.parse(text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text);
+            } catch (jsonErr) {
+                throw new Error(`ไม่สามารถอ่านไฟล์ "${fileName}" ได้ กรุณาใช้ไฟล์รูปแบบ GeoJSON (.json, .geojson) หรือ CSV (.csv)`);
+            }
+            features = json.type === 'FeatureCollection' ? json.features : (Array.isArray(json) ? json : [json]);
+        }
+
+        if (!features || features.length === 0) {
+            throw new Error('ไม่พบข้อมูลแปลงที่ดินในไฟล์');
+        }
+
         await v2ImportFeatures(features, file.name);
     } catch (error) {
         Swal.fire('อ่านไฟล์ไม่สำเร็จ', error.message, 'error');

@@ -1,15 +1,21 @@
 {
-  "name": "Smart Survey",
-  "short_name": "Smart Survey",
+  "name": "Vision TR",
+  "short_name": "Vision TR",
   "description": "ระบบบันทึกข้อมูลงานสำรวจและนำทางแปลงที่ดิน",
   "start_url": "index.html",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#f3f4f6",
-  "theme_color": "#2563eb",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
   "icons": [
     {
-      "src": "icon.png", 
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
