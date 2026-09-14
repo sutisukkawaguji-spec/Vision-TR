@@ -17,7 +17,7 @@ let supabaseUrl = String(surveyConfig.supabaseUrl || '').trim();
 let supabaseKey = String(surveyConfig.supabasePublishableKey || '').trim();
 const isLocalDevelopment = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 const isExtraProDevelopment = window.location.hostname === 'sutisukkawaguji-spec.github.io'
-    && window.location.pathname.startsWith('/survey-extrapro/');
+    && (window.location.pathname.startsWith('/Vision-TR/') || window.location.pathname.startsWith('/survey-extrapro/'));
 const DEV_BYPASS_AUTH = (isLocalDevelopment || isExtraProDevelopment)
     && surveyConfig.devBypassAuth === true;
 
@@ -2884,7 +2884,6 @@ function hideRulerPanel() {
 function injectRulerButtonToGeoman() {
     if (document.getElementById('btn-measure-ruler')) return;
 
-    // Find edit/manage toolbar
     const toolbars = document.querySelectorAll('.leaflet-pm-toolbar');
     let editToolbar = null;
     toolbars.forEach(tb => {
@@ -2900,8 +2899,13 @@ function injectRulerButtonToGeoman() {
     }
     if (!editToolbar) return;
 
-    // Find Rotate button inside edit toolbar
-    const rotateBtn = editToolbar.querySelector('.leaflet-pm-icon-rotate, button[title*="หมุน"], button[title*="Rotate"], a[title*="หมุน"], a[title*="Rotate"], .leaflet-pm-icon-rotate-mode');
+    const allButtons = Array.from(editToolbar.querySelectorAll('.leaflet-buttons-control-button'));
+    let rotateBtn = allButtons.find(b => 
+        b.className.includes('rotate') || 
+        b.querySelector('.leaflet-pm-icon-rotate') ||
+        (b.getAttribute('title') || '').includes('หมุน') || 
+        (b.getAttribute('title') || '').toLowerCase().includes('rotate')
+    );
 
     const rulerBtn = document.createElement('a');
     rulerBtn.id = 'btn-measure-ruler';
@@ -2941,6 +2945,18 @@ function decorateGeomanToolbars() {
         toolbar.querySelectorAll('.leaflet-buttons-control-button').forEach(button => {
             const accessibleName = button.getAttribute('title') || `${label}แผนที่`;
             if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', accessibleName);
+
+            // Ensure Rotate button icon is explicitly visible
+            const isRotate = button.classList.contains('action-rotate') || 
+                             button.querySelector('.leaflet-pm-icon-rotate') || 
+                             (button.getAttribute('title') || '').includes('หมุน') || 
+                             (button.getAttribute('title') || '').toLowerCase().includes('rotate');
+            if (isRotate) {
+                const iconDiv = button.querySelector('.control-icon') || button;
+                if (iconDiv && !iconDiv.querySelector('i')) {
+                    iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate text-gray-700 text-base"></i>';
+                }
+            }
         });
     });
     injectRulerButtonToGeoman();
