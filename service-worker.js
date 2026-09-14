@@ -1,19 +1,29 @@
-self.addEventListener('install', function(e) {
-  self.skipWaiting();
+const CACHE_NAME = 'vision-tr-v1';
+
+self.addEventListener('install', (event) => {
+    self.skipWaiting();
 });
 
-self.addEventListener('activate', function(e) {
-  e.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(name => caches.delete(name))
-      );
-    }).then(() => {
-      self.registration.unregister();
-    }).then(() => {
-      return self.clients.matchAll();
-    }).then(clients => {
-      clients.forEach(client => client.navigate(client.url));
-    })
-  );
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys().then(cacheNames => {
+            return Promise.all(
+                cacheNames.map(name => {
+                    if (name !== CACHE_NAME) {
+                        return caches.delete(name);
+                    }
+                })
+            );
+        }).then(() => self.clients.claim())
+    );
+});
+
+self.addEventListener('fetch', (event) => {
+    if (event.request.method !== 'GET') return;
+    const url = new URL(event.request.url);
+    if (url.protocol === 'chrome-extension:' || url.hostname.includes('supabase.co')) return;
+
+    event.respondWith(
+        fetch(event.request).catch(() => caches.match(event.request))
+    );
 });

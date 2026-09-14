@@ -4,24 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <script>
-        // Force unregister any existing service worker caching the old app files
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                for (var i = 0; i < registrations.length; i++) {
-                    registrations[i].unregister().then(function (success) {
-                        if (success) {
-                            console.log('Successfully unregistered stale service worker.');
-                            window.location.reload(true); // Force reload clean files
-                        }
-                    });
-                }
-            }).catch(function (e) {
-                console.error('Service worker unregister error:', e);
-            });
-        }
-
         window.addEventListener('error', function (e) {
-            alert('Global JS Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+            console.error('Global JS Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
         });
         window.addEventListener('unhandledrejection', function (e) {
             alert('Global Unhandled Rejection: ' + e.reason);
