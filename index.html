@@ -1006,6 +1006,21 @@
             filter: brightness(0) invert(1) !important;
         }
 
+        .ruler-segment-tooltip {
+            background: rgba(15, 23, 42, 0.88) !important;
+            border: 1px solid rgba(99, 102, 241, 0.5) !important;
+            color: #ffffff !important;
+            font-family: 'Sarabun', sans-serif !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            padding: 3px 8px !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+        }
+        .ruler-segment-tooltip::before {
+            border-top-color: rgba(15, 23, 42, 0.88) !important;
+        }
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translate(-50%, 20px); }
             to { opacity: 1; transform: translate(-50%, 0); }

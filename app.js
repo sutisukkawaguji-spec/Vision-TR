@@ -2642,6 +2642,293 @@ async function savePendingGeomanUpdates() {
     }
 }
 
+// --- Measurement Ruler Tool ---
+let isRulerActive = false;
+let rulerPoints = [];
+let rulerMarkersGroup = null;
+let rulerLine = null;
+let rulerPolygon = null;
+let rulerHintLine = null;
+
+function initRulerGroup() {
+    if (!rulerMarkersGroup && map) {
+        rulerMarkersGroup = L.layerGroup().addTo(map);
+    }
+}
+
+function toggleRulerTool() {
+    isRulerActive = !isRulerActive;
+    const rulerBtn = document.getElementById('btn-measure-ruler');
+    
+    if (isRulerActive) {
+        if (rulerBtn) {
+            rulerBtn.classList.add('active');
+            rulerBtn.setAttribute('aria-pressed', 'true');
+        }
+        Swal.fire({
+            toast: true,
+            position: 'top',
+            icon: 'info',
+            title: 'เปิดเครื่องมือไม้บรรทัด',
+            text: 'แตะบนแผนที่เพื่อเริ่มวัดระยะทางและพื้นที่ (ล้างระยะที่ปุ่มแถบบน)',
+            timer: 2500,
+            showConfirmButton: false
+        });
+        enableRulerEvents();
+    } else {
+        if (rulerBtn) {
+            rulerBtn.classList.remove('active');
+            rulerBtn.removeAttribute('aria-pressed');
+        }
+        clearRuler();
+        disableRulerEvents();
+    }
+}
+
+function enableRulerEvents() {
+    if (!map) return;
+    initRulerGroup();
+    map.getContainer().style.cursor = 'crosshair';
+    map.on('click', onRulerMapClick);
+    map.on('mousemove', onRulerMouseMove);
+    map.on('dblclick', onRulerDblClick);
+}
+
+function disableRulerEvents() {
+    if (!map) return;
+    map.getContainer().style.cursor = '';
+    map.off('click', onRulerMapClick);
+    map.off('mousemove', onRulerMouseMove);
+    map.off('dblclick', onRulerDblClick);
+}
+
+function clearRuler() {
+    rulerPoints = [];
+    if (rulerMarkersGroup) rulerMarkersGroup.clearLayers();
+    rulerLine = null;
+    rulerPolygon = null;
+    rulerHintLine = null;
+    hideRulerPanel();
+}
+
+function formatDistanceTH(meters) {
+    if (meters >= 1000) {
+        return (meters / 1000).toFixed(2) + ' กม.';
+    }
+    return meters.toFixed(1) + ' ม.';
+}
+
+function formatAreaRaiTH(sqMeters) {
+    const totalWah = sqMeters / 4;
+    const rai = Math.floor(totalWah / 400);
+    const remainderWah = totalWah % 400;
+    const ngan = Math.floor(remainderWah / 100);
+    const wah = (remainderWah % 100).toFixed(1);
+    
+    let result = '';
+    if (rai > 0) result += `${rai} ไร่ `;
+    if (ngan > 0 || rai > 0) result += `${ngan} งาน `;
+    result += `${wah} ตร.ว.`;
+    return result + ` (${sqMeters.toFixed(1)} ตร.ม.)`;
+}
+
+function calculatePolylineDistance(latlngs) {
+    let total = 0;
+    for (let i = 0; i < latlngs.length - 1; i++) {
+        total += latlngs[i].distanceTo(latlngs[i + 1]);
+    }
+    return total;
+}
+
+function calculatePolygonArea(latlngs) {
+    if (latlngs.length < 3) return 0;
+    let area = 0;
+    const RAD = Math.PI / 180;
+    const R = 6378137;
+    for (let i = 0; i < latlngs.length; i++) {
+        const p1 = latlngs[i];
+        const p2 = latlngs[(i + 1) % latlngs.length];
+        area += (p2.lng - p1.lng) * RAD * (2 + Math.sin(p1.lat * RAD) + Math.sin(p2.lat * RAD));
+    }
+    return Math.abs(area * R * R / 2);
+}
+
+function onRulerMapClick(e) {
+    if (!isRulerActive) return;
+    const latlng = e.latlng;
+    rulerPoints.push(latlng);
+    updateRulerGraphics(latlng);
+}
+
+function onRulerMouseMove(e) {
+    if (!isRulerActive || rulerPoints.length === 0) return;
+    const currentLatLng = e.latlng;
+    const tempPoints = [...rulerPoints, currentLatLng];
+    
+    if (rulerHintLine) {
+        rulerHintLine.setLatLngs([rulerPoints[rulerPoints.length - 1], currentLatLng]);
+    } else {
+        rulerHintLine = L.polyline([rulerPoints[rulerPoints.length - 1], currentLatLng], {
+            color: '#6366f1',
+            dashArray: '6, 6',
+            weight: 2
+        }).addTo(rulerMarkersGroup);
+    }
+    
+    const dist = calculatePolylineDistance(tempPoints);
+    let area = 0;
+    if (tempPoints.length >= 3) {
+        area = calculatePolygonArea(tempPoints);
+    }
+    showRulerPanel(dist, area);
+}
+
+function onRulerDblClick(e) {
+    if (!isRulerActive) return;
+    L.DomEvent.stopPropagation(e);
+    if (rulerPoints.length >= 2) {
+        const totalDist = calculatePolylineDistance(rulerPoints);
+        const area = rulerPoints.length >= 3 ? calculatePolygonArea(rulerPoints) : 0;
+        showRulerPanel(totalDist, area, true);
+    }
+}
+
+function updateRulerGraphics(latestLatLng) {
+    initRulerGroup();
+
+    const marker = L.circleMarker(latestLatLng, {
+        radius: 6,
+        color: '#4f46e5',
+        fillColor: '#ffffff',
+        fillOpacity: 1,
+        weight: 3
+    }).addTo(rulerMarkersGroup);
+
+    if (rulerPoints.length > 1) {
+        const segDist = rulerPoints[rulerPoints.length - 2].distanceTo(latestLatLng);
+        marker.bindTooltip(formatDistanceTH(segDist), {
+            permanent: true,
+            direction: 'top',
+            className: 'ruler-segment-tooltip'
+        }).openTooltip();
+    } else {
+        marker.bindTooltip('จุดเริ่ม', {
+            permanent: true,
+            direction: 'top',
+            className: 'ruler-segment-tooltip'
+        }).openTooltip();
+    }
+
+    if (rulerPoints.length >= 2) {
+        if (!rulerLine) {
+            rulerLine = L.polyline(rulerPoints, {
+                color: '#4f46e5',
+                weight: 4,
+                opacity: 0.9
+            }).addTo(rulerMarkersGroup);
+        } else {
+            rulerLine.setLatLngs(rulerPoints);
+        }
+    }
+
+    if (rulerPoints.length >= 3) {
+        if (!rulerPolygon) {
+            rulerPolygon = L.polygon(rulerPoints, {
+                color: '#6366f1',
+                fillColor: '#818cf8',
+                fillOpacity: 0.25,
+                weight: 2
+            }).addTo(rulerMarkersGroup);
+        } else {
+            rulerPolygon.setLatLngs(rulerPoints);
+        }
+    }
+
+    const totalDist = calculatePolylineDistance(rulerPoints);
+    const area = rulerPoints.length >= 3 ? calculatePolygonArea(rulerPoints) : 0;
+    showRulerPanel(totalDist, area);
+}
+
+function showRulerPanel(distMeters, areaSqMeters) {
+    let panel = document.getElementById('ruler-info-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'ruler-info-panel';
+        panel.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-[999] bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-indigo-500/40 flex items-center gap-3 text-xs animate-fade-in';
+        document.body.appendChild(panel);
+    }
+    
+    let html = `
+        <div class="flex items-center gap-2">
+            <i class="fa-solid fa-ruler-combined text-indigo-400 text-sm"></i>
+            <div>
+                <div class="font-bold text-white flex items-center gap-1.5">
+                    <span>ระยะทาง: ${formatDistanceTH(distMeters)}</span>
+                </div>
+                ${areaSqMeters > 0 ? `<div class="text-[11px] text-emerald-300 font-semibold mt-0.5">พื้นที่: ${formatAreaRaiTH(areaSqMeters)}</div>` : ''}
+            </div>
+        </div>
+        <button onclick="clearRuler()" title="ล้างค่าการวัด" class="ml-2 w-7 h-7 rounded-full bg-slate-800 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition cursor-pointer">
+            <i class="fa-solid fa-rotate-left text-xs"></i>
+        </button>
+    `;
+    panel.innerHTML = html;
+    panel.style.display = 'flex';
+}
+
+function hideRulerPanel() {
+    const panel = document.getElementById('ruler-info-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+function injectRulerButtonToGeoman() {
+    if (document.getElementById('btn-measure-ruler')) return;
+
+    // Find edit/manage toolbar
+    const toolbars = document.querySelectorAll('.leaflet-pm-toolbar');
+    let editToolbar = null;
+    toolbars.forEach(tb => {
+        if (tb.dataset.groupLabel === 'จัดการ' || tb.className.includes('leaflet-pm-edit')) {
+            editToolbar = tb;
+        }
+    });
+
+    if (!editToolbar && toolbars.length > 1) {
+        editToolbar = toolbars[1];
+    } else if (!editToolbar && toolbars.length > 0) {
+        editToolbar = toolbars[0];
+    }
+    if (!editToolbar) return;
+
+    // Find Rotate button inside edit toolbar
+    const rotateBtn = editToolbar.querySelector('.leaflet-pm-icon-rotate, button[title*="หมุน"], button[title*="Rotate"], a[title*="หมุน"], a[title*="Rotate"], .leaflet-pm-icon-rotate-mode');
+
+    const rulerBtn = document.createElement('a');
+    rulerBtn.id = 'btn-measure-ruler';
+    rulerBtn.className = 'leaflet-buttons-control-button';
+    rulerBtn.setAttribute('title', 'ไม้บรรทัด (วัดระยะทางและพื้นที่)');
+    rulerBtn.setAttribute('aria-label', 'ไม้บรรทัดวัดระยะทางและพื้นที่');
+    rulerBtn.setAttribute('role', 'button');
+    rulerBtn.href = '#';
+    rulerBtn.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleRulerTool();
+    };
+
+    rulerBtn.innerHTML = `
+        <div class="control-icon flex items-center justify-center text-indigo-600 text-lg">
+            <i class="fa-solid fa-ruler-combined"></i>
+        </div>
+    `;
+
+    if (rotateBtn && rotateBtn.parentNode) {
+        rotateBtn.parentNode.insertBefore(rulerBtn, rotateBtn.nextSibling);
+    } else {
+        editToolbar.appendChild(rulerBtn);
+    }
+}
+
 function decorateGeomanToolbars() {
     document.querySelectorAll('.leaflet-pm-toolbar').forEach((toolbar, index) => {
         const className = toolbar.className || '';
@@ -2656,6 +2943,7 @@ function decorateGeomanToolbars() {
             if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', accessibleName);
         });
     });
+    injectRulerButtonToGeoman();
 }
 
 function renderGeomanToggleButton(btn, isOpen) {
