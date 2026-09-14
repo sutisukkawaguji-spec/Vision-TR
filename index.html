@@ -464,6 +464,66 @@
             transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
+        /* แถวล่างสุดของ FAB: ปุ่มไม้บรรทัดซ้าย + ปุ่มซ่อนขวา */
+        .fab-bottom-row {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        /* ปุ่มไม้บรรทัด FAB ขนาดเล็กกว่าปุ่มเปิด/ปิด */
+        #btn-ruler-fab {
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
+            border-radius: 14px;
+            background: linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.88));
+            color: #818cf8;
+            border: 1px solid rgba(99,102,241,0.4);
+            box-shadow: 0 8px 20px rgba(15,23,42,0.28), inset 0 1px 0 rgba(255,255,255,0.12);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #btn-ruler-fab .ruler-fab-label {
+            font-size: 8px;
+            font-weight: 800;
+            font-family: 'Sarabun', sans-serif;
+            line-height: 1;
+            letter-spacing: 0.02em;
+            color: #a5b4fc;
+        }
+
+        #btn-ruler-fab:hover {
+            transform: translateY(-2px) scale(1.04);
+            box-shadow: 0 12px 28px rgba(99,102,241,0.3), inset 0 1px 0 rgba(255,255,255,0.18);
+            color: #a5b4fc;
+        }
+
+        #btn-ruler-fab:active {
+            transform: scale(0.94);
+        }
+
+        #btn-ruler-fab.ruler-active {
+            background: linear-gradient(145deg, #6366f1, #4f46e5) !important;
+            color: #ffffff !important;
+            border-color: #818cf8 !important;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.25), 0 10px 24px rgba(79,70,229,0.38) !important;
+        }
+
+        #btn-ruler-fab.ruler-active .ruler-fab-label {
+            color: rgba(255,255,255,0.9) !important;
+        }
+
         .fab-col.sheet-open {
             bottom: calc(180px + var(--safe-bottom));
         }
@@ -1418,10 +1478,7 @@
     <div id="map" class="map-full"></div>
 
     <div id="fab-container" class="fab-col">
-        <button id="btn-toggle-pm" class="btn-fab bg-purple-600 text-white" onclick="toggleGeomanToolbar()"
-            title="เปิด/ปิดเครื่องมือวาดและย้ายรูปแปลง" aria-expanded="true">
-            <i class="fa-solid fa-xmark"></i><span class="pm-toggle-label">ซ่อน</span>
-        </button>
+        <!-- ปุ่มแถวชั้นบน -->
         <button class="btn-fab bg-gray-800 text-white" onclick="openToolsMenu()"><i
                 class="fa-solid fa-gear"></i></button>
         <button class="btn-fab bg-blue-500 text-white" onclick="findNearestNewJob()"><i
@@ -1433,6 +1490,17 @@
         <button id="btn-gps" class="btn-fab bg-white text-blue-600" onclick="toggleGPSFollow()">
             <i class="fa-solid fa-location-arrow"></i>
         </button>
+        <!-- แถวล่างสุด: ไม้บรรทัด (ซ้าย) + ซ่อนเครื่องมือ (ขวา) -->
+        <div class="fab-bottom-row">
+            <button id="btn-ruler-fab" onclick="toggleRulerTool()" title="ไม้บรรทัด (วัดระยะทางและพื้นที่)">
+                <i class="fa-solid fa-ruler-combined"></i>
+                <span class="ruler-fab-label">วัด</span>
+            </button>
+            <button id="btn-toggle-pm" class="btn-fab bg-purple-600 text-white" onclick="toggleGeomanToolbar()"
+                title="เปิด/ปิดเครื่องมือวาดและย้ายรูปแปลง" aria-expanded="true">
+                <i class="fa-solid fa-xmark"></i><span class="pm-toggle-label">ซ่อน</span>
+            </button>
+        </div>
     </div>
 
     <div id="voice-mode-indicator"

@@ -2658,12 +2658,19 @@ function initRulerGroup() {
 
 function toggleRulerTool() {
     isRulerActive = !isRulerActive;
+    // Sync with old toolbar button (if still present)
     const rulerBtn = document.getElementById('btn-measure-ruler');
+    // Sync with new standalone FAB button
+    const rulerFab = document.getElementById('btn-ruler-fab');
     
     if (isRulerActive) {
         if (rulerBtn) {
             rulerBtn.classList.add('active');
             rulerBtn.setAttribute('aria-pressed', 'true');
+        }
+        if (rulerFab) {
+            rulerFab.classList.add('ruler-active');
+            rulerFab.setAttribute('aria-pressed', 'true');
         }
         Swal.fire({
             toast: true,
@@ -2679,6 +2686,10 @@ function toggleRulerTool() {
         if (rulerBtn) {
             rulerBtn.classList.remove('active');
             rulerBtn.removeAttribute('aria-pressed');
+        }
+        if (rulerFab) {
+            rulerFab.classList.remove('ruler-active');
+            rulerFab.removeAttribute('aria-pressed');
         }
         clearRuler();
         disableRulerEvents();
@@ -2882,55 +2893,9 @@ function hideRulerPanel() {
 }
 
 function injectRulerButtonToGeoman() {
-    if (document.getElementById('btn-measure-ruler')) return;
-
-    const toolbars = document.querySelectorAll('.leaflet-pm-toolbar');
-    let editToolbar = null;
-    toolbars.forEach(tb => {
-        if (tb.dataset.groupLabel === 'จัดการ' || tb.className.includes('leaflet-pm-edit')) {
-            editToolbar = tb;
-        }
-    });
-
-    if (!editToolbar && toolbars.length > 1) {
-        editToolbar = toolbars[1];
-    } else if (!editToolbar && toolbars.length > 0) {
-        editToolbar = toolbars[0];
-    }
-    if (!editToolbar) return;
-
-    const allButtons = Array.from(editToolbar.querySelectorAll('.leaflet-buttons-control-button'));
-    let rotateBtn = allButtons.find(b => 
-        b.className.includes('rotate') || 
-        b.querySelector('.leaflet-pm-icon-rotate') ||
-        (b.getAttribute('title') || '').includes('หมุน') || 
-        (b.getAttribute('title') || '').toLowerCase().includes('rotate')
-    );
-
-    const rulerBtn = document.createElement('a');
-    rulerBtn.id = 'btn-measure-ruler';
-    rulerBtn.className = 'leaflet-buttons-control-button';
-    rulerBtn.setAttribute('title', 'ไม้บรรทัด (วัดระยะทางและพื้นที่)');
-    rulerBtn.setAttribute('aria-label', 'ไม้บรรทัดวัดระยะทางและพื้นที่');
-    rulerBtn.setAttribute('role', 'button');
-    rulerBtn.href = '#';
-    rulerBtn.onclick = function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleRulerTool();
-    };
-
-    rulerBtn.innerHTML = `
-        <div class="control-icon flex items-center justify-center text-indigo-600 text-lg">
-            <i class="fa-solid fa-ruler-combined"></i>
-        </div>
-    `;
-
-    if (rotateBtn && rotateBtn.parentNode) {
-        rotateBtn.parentNode.insertBefore(rulerBtn, rotateBtn.nextSibling);
-    } else {
-        editToolbar.appendChild(rulerBtn);
-    }
+    // The ruler button is now a standalone FAB (#btn-ruler-fab) placed next to #btn-toggle-pm.
+    // No injection into the Geoman toolbar is needed.
+    // Keep this function as a no-op to avoid breaking any call sites.
 }
 
 function decorateGeomanToolbars() {
@@ -2995,10 +2960,11 @@ function positionGeomanToolbars() {
     const mapRect = mapElement.getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
     const gap = window.matchMedia('(max-width: 599px)').matches ? 8 : 10;
-    const bottom = Math.max(8, mapRect.bottom - btnRect.top + gap);
+    // Align toolbar bottom edge with the BOTTOM of btn-toggle-pm (not its top),
+    // so the toolbars sit beside the toggle row rather than floating above it.
+    const bottom = Math.max(8, mapRect.bottom - btnRect.bottom + gap);
     const right = Math.max(8, mapRect.right - btnRect.right);
 
-    // Keep the tool columns aligned directly above the toggle without overlap.
     container.style.setProperty('bottom', `${Math.round(bottom)}px`, 'important');
     container.style.setProperty('right', `${Math.round(right)}px`, 'important');
 }
