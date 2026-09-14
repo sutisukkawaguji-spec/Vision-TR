@@ -2946,17 +2946,28 @@ function decorateGeomanToolbars() {
             const accessibleName = button.getAttribute('title') || `${label}แผนที่`;
             if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', accessibleName);
 
-            // Ensure Rotate button icon is explicitly visible
+            // Ensure Rotate button icon is explicitly visible (always overwrite to prevent duplication)
             const isRotate = button.classList.contains('action-rotate') || 
                              button.querySelector('.leaflet-pm-icon-rotate') || 
                              (button.getAttribute('title') || '').includes('หมุน') || 
                              (button.getAttribute('title') || '').toLowerCase().includes('rotate');
             if (isRotate) {
-                const iconDiv = button.querySelector('.control-icon') || button;
+                const iconDiv = button.querySelector('.control-icon');
                 if (iconDiv) {
                     iconDiv.style.backgroundImage = 'none';
-                    if (!iconDiv.querySelector('i')) {
-                        iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate text-gray-700 text-base"></i>';
+                    iconDiv.style.backgroundSize = '0';
+                    // Always set exactly one icon (clears any duplicate content)
+                    iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate" style="font-size:18px;color:#374151;"></i>';
+                } else {
+                    // No .control-icon child — inject directly into button but avoid nesting weirdly
+                    button.style.backgroundImage = 'none';
+                    if (!button.querySelector('i.fa-arrows-rotate')) {
+                        const iEl = document.createElement('i');
+                        iEl.className = 'fa-solid fa-arrows-rotate';
+                        iEl.style.cssText = 'font-size:18px;color:#374151;pointer-events:none;';
+                        // Remove any existing icon children first
+                        button.querySelectorAll('i').forEach(el => el.remove());
+                        button.appendChild(iEl);
                     }
                 }
             }
