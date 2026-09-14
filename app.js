@@ -2953,8 +2953,11 @@ function decorateGeomanToolbars() {
                              (button.getAttribute('title') || '').toLowerCase().includes('rotate');
             if (isRotate) {
                 const iconDiv = button.querySelector('.control-icon') || button;
-                if (iconDiv && !iconDiv.querySelector('i')) {
-                    iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate text-gray-700 text-base"></i>';
+                if (iconDiv) {
+                    iconDiv.style.backgroundImage = 'none';
+                    if (!iconDiv.querySelector('i')) {
+                        iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate text-gray-700 text-base"></i>';
+                    }
                 }
             }
         });
