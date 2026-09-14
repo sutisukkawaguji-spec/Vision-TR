@@ -2658,19 +2658,12 @@ function initRulerGroup() {
 
 function toggleRulerTool() {
     isRulerActive = !isRulerActive;
-    // Sync with old toolbar button (if still present)
     const rulerBtn = document.getElementById('btn-measure-ruler');
-    // Sync with new standalone FAB button
-    const rulerFab = document.getElementById('btn-ruler-fab');
     
     if (isRulerActive) {
         if (rulerBtn) {
             rulerBtn.classList.add('active');
             rulerBtn.setAttribute('aria-pressed', 'true');
-        }
-        if (rulerFab) {
-            rulerFab.classList.add('ruler-active');
-            rulerFab.setAttribute('aria-pressed', 'true');
         }
         Swal.fire({
             toast: true,
@@ -2686,10 +2679,6 @@ function toggleRulerTool() {
         if (rulerBtn) {
             rulerBtn.classList.remove('active');
             rulerBtn.removeAttribute('aria-pressed');
-        }
-        if (rulerFab) {
-            rulerFab.classList.remove('ruler-active');
-            rulerFab.removeAttribute('aria-pressed');
         }
         clearRuler();
         disableRulerEvents();
@@ -2893,9 +2882,51 @@ function hideRulerPanel() {
 }
 
 function injectRulerButtonToGeoman() {
-    // The ruler button is now a standalone FAB (#btn-ruler-fab) placed next to #btn-toggle-pm.
-    // No injection into the Geoman toolbar is needed.
-    // Keep this function as a no-op to avoid breaking any call sites.
+    if (document.getElementById('btn-measure-ruler')) return;
+
+    const toolbars = Array.from(document.querySelectorAll('.leaflet-pm-toolbar'));
+    const manageToolbar = toolbars.find(toolbar =>
+        toolbar.dataset.groupLabel === 'จัดการ' || toolbar.className.includes('leaflet-pm-edit')
+    ) || toolbars[1] || toolbars[0];
+    if (!manageToolbar) return;
+
+    const buttons = Array.from(manageToolbar.querySelectorAll('.leaflet-buttons-control-button'));
+    const rotateButton = buttons.find(button => {
+        const title = (button.getAttribute('title') || '').toLowerCase();
+        return button.className.includes('rotate')
+            || button.querySelector('.leaflet-pm-icon-rotate')
+            || title.includes('หมุน')
+            || title.includes('rotate');
+    });
+
+    // Geoman puts every control inside .button-container.  Keeping that wrapper is
+    // necessary for the toolbar's flex gap to match the surrounding controls.
+    const rulerContainer = document.createElement('div');
+    rulerContainer.className = 'button-container pos-right';
+    rulerContainer.setAttribute('title', 'ไม้บรรทัด (วัดระยะทางและพื้นที่)');
+
+    const rulerButton = document.createElement('a');
+    rulerButton.id = 'btn-measure-ruler';
+    rulerButton.className = 'leaflet-buttons-control-button ruler-control';
+    rulerButton.href = '#';
+    rulerButton.setAttribute('role', 'button');
+    rulerButton.setAttribute('title', 'ไม้บรรทัด (วัดระยะทางและพื้นที่)');
+    rulerButton.setAttribute('aria-label', 'ไม้บรรทัดวัดระยะทางและพื้นที่');
+    rulerButton.innerHTML = '<div class="control-icon"><i class="fa-solid fa-ruler-combined" style="font-size:18px;color:#374151;"></i></div>';
+    rulerButton.onclick = event => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRulerTool();
+    };
+    rulerContainer.appendChild(rulerButton);
+
+    // Put the ruler directly below Rotate in the Manage toolbar.
+    const rotateContainer = rotateButton?.closest('.button-container');
+    if (rotateContainer?.parentNode) {
+        rotateContainer.parentNode.insertBefore(rulerContainer, rotateContainer.nextSibling);
+    } else {
+        manageToolbar.appendChild(rulerContainer);
+    }
 }
 
 function decorateGeomanToolbars() {
@@ -2960,9 +2991,8 @@ function positionGeomanToolbars() {
     const mapRect = mapElement.getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
     const gap = window.matchMedia('(max-width: 599px)').matches ? 8 : 10;
-    // Align toolbar bottom edge with the BOTTOM of btn-toggle-pm (not its top),
-    // so the toolbars sit beside the toggle row rather than floating above it.
-    const bottom = Math.max(8, mapRect.bottom - btnRect.bottom + gap);
+    // Keep expanded toolbars directly above the toggle button.
+    const bottom = Math.max(8, mapRect.bottom - btnRect.top + gap);
     const right = Math.max(8, mapRect.right - btnRect.right);
 
     container.style.setProperty('bottom', `${Math.round(bottom)}px`, 'important');
