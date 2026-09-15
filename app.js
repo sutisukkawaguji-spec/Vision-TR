@@ -1940,6 +1940,69 @@ function getNavigationTarget() {
     return manualTravelTarget;
 }
 
+function getActiveSearchResults() {
+    const mode = document.getElementById('search-mode')?.value || 'data';
+    return mode === 'map' ? (window.currentPlaceSearchResults || []) : getFilteredJobs();
+}
+
+function getSearchResultName(result, mode) {
+    if (mode === 'map') return result?.name || result?.address || result?.secondaryText || 'สถานที่';
+    return result?.properties?.name || '(ไม่มีชื่อแปลง)';
+}
+
+function parseThaiResultNumber(text, action = 'select') {
+    const words = [
+        ['สิบ', 10], ['เก้า', 9], ['แปด', 8], ['เจ็ด', 7], ['หก', 6],
+        ['ห้า', 5], ['สี่', 4], ['สาม', 3], ['สอง', 2], ['หนึ่ง', 1]
+    ];
+    const prefix = action === 'read' ? 'อ่าน(?:ให้)?' : '(?:เลือก|เลือกรายการ|รายการ|ลำดับ)';
+    const digitMatch = text.match(new RegExp(`${prefix}(?:รายการ|ลำดับ|ที่)?(10|[1-9])(?:รายการ)?`));
+    if (digitMatch) return Number(digitMatch[1]);
+    for (const [word, number] of words) {
+        if (new RegExp(`${prefix}(?:รายการ|ลำดับ|ที่)?${word}(?:รายการ)?`).test(text)) return number;
+    }
+    return null;
+}
+
+function readSearchResultsByVoice(count) {
+    const mode = document.getElementById('search-mode')?.value || 'data';
+    const results = getActiveSearchResults();
+    if (!results.length) return speak('ยังไม่มีผลการค้นหา กรุณาค้นหาก่อน');
+    const numberToRead = Math.min(count || 3, results.length, 10);
+    const items = results.slice(0, numberToRead).map((result, index) =>
+        `รายการที่ ${index + 1} ${getSearchResultName(result, mode)}`
+    );
+    speak(`พบ ${results.length} รายการ ${items.join(' , ')}`, true);
+}
+
+async function selectSearchResultByVoice(number, navigate = false) {
+    const mode = document.getElementById('search-mode')?.value || 'data';
+    const results = getActiveSearchResults();
+    const index = number - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= results.length) {
+        return speak(`ไม่พบรายการที่ ${number} ในผลการค้นหา`);
+    }
+
+    if (mode === 'map') {
+        await selectPlaceSearchResult(index);
+        const place = window.currentPlaceSearchResults?.[index];
+        if (!navigate) return speak(`เลือก ${getSearchResultName(place, mode)} แล้ว แตะหมุดเพื่อปักหมุดหรือนำทาง`);
+        if (!Number.isFinite(Number(place?.lat)) || !Number.isFinite(Number(place?.lng))) {
+            return speak('ไม่พบพิกัดสำหรับนำทาง');
+        }
+        speak(`เริ่มนำทางไปยัง ${getSearchResultName(place, mode)}`);
+        return startNavigationToPoint({ ...place, type: 'place' });
+    }
+
+    const job = results[index];
+    selectedJobId = job.id;
+    openSheet(job);
+    document.getElementById('search-results')?.classList.remove('active');
+    if (!navigate) return speak(`เลือกรายการที่ ${number} ${getSearchResultName(job, mode)}`);
+    speak(`เดินทางไปยังรายการที่ ${number}`);
+    return startNav();
+}
+
 function formatSpokenDistance(distance) {
     if (!Number.isFinite(distance)) return '';
     return distance >= 1000
@@ -2166,9 +2229,11 @@ async function handleVoiceCommand(transcript) {
     const isClearNote = cleanTranscript.includes("clearnote") || cleanTranscript.includes("clearnotes") || cleanTranscript.includes("clearalltext") || cleanTranscript.includes("cleartext") || cleanTranscript.includes("ลบข้อความทั้งหมด") || cleanTranscript.includes("ลบหมายเหตุทั้งหมด") || cleanTranscript.includes("ลบข้อความ") || cleanTranscript.includes("ลบหมายเหตุ") || cleanTranscript.includes("ลบทั้งหมด") || cleanTranscript.includes("ล้างข้อความทั้งหมด") || cleanTranscript.includes("ล้างข้อความ") || cleanTranscript.includes("เคลียร์ข้อความทั้งหมด") || cleanTranscript.includes("เคลียร์ข้อความ") || cleanTranscript.includes("เคลียร์โน้ต") || cleanTranscript.includes("ลบโน้ต");
     const isCloseSheet = !cleanTranscript.includes("เปิด") && !cleanTranscript.includes("open") && (cleanTranscript.includes("closesheet") || cleanTranscript.includes("closedetails") || cleanTranscript.includes("closedetail") || cleanTranscript.includes("closebox") || cleanTranscript.includes("closewindow") || cleanTranscript.includes("cancel") || cleanTranscript.includes("ปิดบันทึก") || cleanTranscript.includes("ปิดกล่องบันทึก") || cleanTranscript.includes("ปิดกล่อง") || cleanTranscript.includes("ปิดรายละเอียด") || cleanTranscript.includes("ปิดหน้าต่าง") || cleanTranscript.includes("ยกเลิกบันทึก") || cleanTranscript.includes("ยกเลิกรายละเอียด") || (cleanTranscript.includes("ปิด") && !cleanTranscript.includes("ปิดป้ายชื่อ") && !cleanTranscript.includes("ปิดป้าย") && !cleanTranscript.includes("ปิดระบบ")) || (cleanTranscript.includes("ยกเลิก") && !cleanTranscript.includes("ยกเลิกการนำทาง") && !cleanTranscript.includes("ยกเลิกนำทาง")));
     const isFocusSearch = !cleanTranscript.includes("ลบ") && !cleanTranscript.includes("ล้าง") && (cleanTranscript.includes("ค้นหา") || cleanTranscript.includes("ช่องค้นหา") || cleanTranscript.includes("เปิดค้นหา") || cleanTranscript.includes("search"));
-    const isNavigateSearchItem = (cleanTranscript.includes("รายการที่") || cleanTranscript.includes("รายการ")) && cleanTranscript.includes("เดินทาง");
+    const isReadSearchItems = cleanTranscript.includes("อ่าน") && cleanTranscript.includes("รายการ");
+    const isSelectSearchItem = !isReadSearchItems && (cleanTranscript.includes("เลือกรายการ") || cleanTranscript.includes("รายการที่") || cleanTranscript.includes("ลำดับที่"));
+    const isNavigateSearchItem = isSelectSearchItem && cleanTranscript.includes("เดินทาง");
 
-    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isNavigateSearchItem && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
+    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isReadSearchItems && !isSelectSearchItem && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
 
     if (isSurvey) {
         let job = null;
@@ -2263,40 +2328,12 @@ async function handleVoiceCommand(transcript) {
     } else if (isFocusSearch) {
         const searchInput = document.getElementById('inp-search');
         if (searchInput) { searchInput.focus(); searchInput.select(); speak("ค้นหา"); }
-    } else if (isNavigateSearchItem) {
-        let targetIndex = -1;
-        if (cleanTranscript.includes("หนึ่ง") || cleanTranscript.includes("1")) targetIndex = 0;
-        else if (cleanTranscript.includes("สอง") || cleanTranscript.includes("2")) targetIndex = 1;
-        else if (cleanTranscript.includes("สาม") || cleanTranscript.includes("3")) targetIndex = 2;
-        else if (cleanTranscript.includes("สี่") || cleanTranscript.includes("4")) targetIndex = 3;
-        else if (cleanTranscript.includes("ห้า") || cleanTranscript.includes("5")) targetIndex = 4;
-        else if (cleanTranscript.includes("หก") || cleanTranscript.includes("6")) targetIndex = 5;
-        else if (cleanTranscript.includes("เจ็ด") || cleanTranscript.includes("7")) targetIndex = 6;
-        else if (cleanTranscript.includes("แปด") || cleanTranscript.includes("8")) targetIndex = 7;
-        else if (cleanTranscript.includes("เก้า") || cleanTranscript.includes("9")) targetIndex = 8;
-        else if (cleanTranscript.includes("สิบ") || cleanTranscript.includes("10")) targetIndex = 9;
-
-        if (targetIndex >= 0) {
-            const hits = getFilteredJobs();
-            if (hits && hits.length > targetIndex) {
-                const j = hits[targetIndex];
-                selectedJobId = j.id;
-                openSheet(j);
-                const resultsEl = document.getElementById('search-results');
-                if (resultsEl) resultsEl.classList.remove('active');
-                const searchInput = document.getElementById('inp-search');
-                if (searchInput) {
-                    searchInput.value = '';
-                    searchInput.blur();
-                }
-                speak(`เดินทางไปยังรายการที่ ${targetIndex + 1}`);
-                await startNav();
-            } else {
-                speak(`ไม่พบรายการที่ ${targetIndex + 1} ในผลการค้นหา`);
-            }
-        } else {
-            speak("กรุณาระบุลำดับรายการให้ถูกต้อง");
-        }
+    } else if (isReadSearchItems) {
+        readSearchResultsByVoice(parseThaiResultNumber(cleanTranscript, 'read') || 3);
+    } else if (isSelectSearchItem) {
+        const itemNumber = parseThaiResultNumber(cleanTranscript);
+        if (!itemNumber) speak("กรุณาระบุลำดับรายการให้ถูกต้อง");
+        else await selectSearchResultByVoice(itemNumber, isNavigateSearchItem);
     } else {
         const noteInput = document.getElementById('sheet-note');
         const searchInput = document.getElementById('inp-search');
