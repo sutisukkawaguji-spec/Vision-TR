@@ -1913,6 +1913,12 @@ async function handleDrivingVoiceCommand(cleanTranscript) {
         return;
     }
 
+    const followLocation = getVoiceLocationFollowRequest(cleanTranscript);
+    if (followLocation !== null) {
+        setLocationFollowByVoice(followLocation);
+        return;
+    }
+
     const wantsStartNavigation = /^(?:เริ่ม)?(?:นำทาง|เดินทาง)(?:ต่อ)?$/.test(cleanTranscript) || cleanTranscript === 'ไปเลย' || cleanTranscript === 'เริ่มเส้นทาง';
     if (wantsStartNavigation) {
         await startNavigationToCurrentVoiceTarget();
@@ -2017,6 +2023,17 @@ async function startLatestNavigationByVoice() {
 
 function isLatestNavigationCommand(text) {
     return voiceHasAny(text, ['การนำทางล่าสุด', 'นำทางล่าสุด', 'เส้นทางล่าสุด', 'ไปที่ล่าสุด', 'กลับไปที่ล่าสุด', 'ไปจุดหมายล่าสุด']);
+}
+
+function getVoiceLocationFollowRequest(text) {
+    if (voiceHasAny(text, ['หยุดติดตามตำแหน่ง', 'ปิดติดตามตำแหน่ง', 'หยุดตามตำแหน่ง', 'ปิดตามตำแหน่ง'])) return false;
+    if (voiceHasAny(text, ['ติดตามตำแหน่ง', 'ตามตำแหน่ง', 'ติดตามจีพีเอส', 'ตามจีพีเอส', 'ตามฉัน', 'ตามตำแหน่งฉัน'])) return true;
+    return null;
+}
+
+function setLocationFollowByVoice(enabled) {
+    if (isFollowing !== enabled) toggleGPSFollow(enabled);
+    speak(enabled ? 'เปิดติดตามตำแหน่งแล้ว' : 'หยุดติดตามตำแหน่งแล้ว', true);
 }
 
 function getActiveSearchResults() {
@@ -2188,6 +2205,12 @@ async function handleVoiceCommand(transcript) {
 
     if (isLatestNavigationCommand(cleanTranscript)) {
         await startLatestNavigationByVoice();
+        return;
+    }
+
+    const followLocation = getVoiceLocationFollowRequest(cleanTranscript);
+    if (followLocation !== null) {
+        setLocationFollowByVoice(followLocation);
         return;
     }
 
