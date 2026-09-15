@@ -2275,7 +2275,7 @@ async function handleVoiceCommand(transcript) {
     }
 
     const isSave = cleanTranscript.includes("savesurvey") || cleanTranscript.includes("เซฟเซอร์เวย์") || cleanTranscript.includes("เซฟเซอเวย์") || cleanTranscript.includes("บันทึกข้อมูล") || 
-                   (cleanTranscript.includes("บันทึก") && !cleanTranscript.includes("เปิดบันทึก") && !cleanTranscript.includes("ปิดบันทึก") && !cleanTranscript.includes("ปิดกล่องบันทึก") && !cleanTranscript.includes("ลบบันทึก") && !cleanTranscript.includes("ลบการบันทึก"));
+                   (cleanTranscript.includes("บันทึก") && !cleanTranscript.includes("เปิดบันทึก") && !cleanTranscript.includes("เปิดกล่องบันทึก") && !cleanTranscript.includes("เปิดแบบฟอร์ม") && !cleanTranscript.includes("ปิดบันทึก") && !cleanTranscript.includes("ปิดกล่องบันทึก") && !cleanTranscript.includes("ลบบันทึก") && !cleanTranscript.includes("ลบการบันทึก"));
 
     const isNext = cleanTranscript.includes("nextpoint") || cleanTranscript.includes("nexpoint") || cleanTranscript.includes("แปลงถัดไป") || cleanTranscript.includes("จุดถัดไป") || cleanTranscript.includes("เน็กพอยต์") || cleanTranscript.includes("เน็กซ์พอยต์");
     const isCancelNav = cleanTranscript.includes("cancelnavigation") || cleanTranscript.includes("stopnavigation") || cleanTranscript.includes("cancelroute") || cleanTranscript.includes("ยกเลิกการนำทาง") || cleanTranscript.includes("ยกเลิกนำทาง") || cleanTranscript.includes("หยุดนำทาง");
@@ -2297,7 +2297,7 @@ async function handleVoiceCommand(transcript) {
     const isNavigateSearchItem = isSelectSearchItem && cleanTranscript.includes("เดินทาง");
     const isStartNavigation = /^(?:เริ่ม)?(?:นำทาง|เดินทาง)(?:ต่อ)?$/.test(cleanTranscript) || cleanTranscript === 'ไปเลย' || cleanTranscript === 'เริ่มเส้นทาง';
 
-    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isReadSearchItems && !isSelectSearchItem && !isStartNavigation && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
+    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isReadSearchItems && !isSelectSearchItem && !isStartNavigation && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เปิดกล่องบันทึก") || cleanTranscript.includes("เปิดแบบฟอร์ม") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
 
     if (isSurvey) {
         let job = null;
@@ -2317,6 +2317,7 @@ async function handleVoiceCommand(transcript) {
         }
 
         if (job) {
+            openSheet(job);
             const sheet = document.getElementById('sheet');
             if (sheet) { sheet.classList.remove('minimized'); sheet.classList.add('active'); }
             const noteInput = document.getElementById('sheet-note');
