@@ -15,8 +15,15 @@ android {
         versionName = "1.0.0"
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildFeatures { buildConfig = true }
 }
+
+kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation("androidx.activity:activity-ktx:1.10.0")
