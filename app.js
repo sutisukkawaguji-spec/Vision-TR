@@ -7487,6 +7487,9 @@ doSearch = async function () {
     }
 
     if (mode === 'map') {
+        // A search-preview marker is temporary. Starting another place search
+        // clears it unless the user explicitly converted it to a travel pin.
+        removePlaceSearchPreview();
         const requestId = ++placeSearchRequestId;
         results.innerHTML = '<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-1"></i> กำลังค้นหาสถานที่...</div>';
         results.classList.add('active');
