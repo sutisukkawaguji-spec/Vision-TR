@@ -609,6 +609,7 @@ let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
+let lastNavigationTarget = null;
 let activeRouteSummary = null;
 let manualTravelMarker = null;
 let manualTravelTarget = null;
@@ -1907,6 +1908,11 @@ async function handleDrivingVoiceCommand(cleanTranscript) {
         return;
     }
 
+    if (isLatestNavigationCommand(cleanTranscript)) {
+        await startLatestNavigationByVoice();
+        return;
+    }
+
     const wantsStartNavigation = /^(?:เริ่ม)?(?:นำทาง|เดินทาง)(?:ต่อ)?$/.test(cleanTranscript) || cleanTranscript === 'ไปเลย' || cleanTranscript === 'เริ่มเส้นทาง';
     if (wantsStartNavigation) {
         await startNavigationToCurrentVoiceTarget();
@@ -1991,6 +1997,28 @@ async function startNavigationToCurrentVoiceTarget() {
     await startNavigationToPoint(target);
 }
 
+async function startLatestNavigationByVoice() {
+    if (isNavigating && activeNavigationTarget) {
+        speak(`กำลังนำทางไปยัง ${activeNavigationTarget.name || 'จุดหมายปัจจุบัน'} อยู่แล้ว`, true);
+        return;
+    }
+    if (!lastNavigationTarget) {
+        speak('ยังไม่มีประวัติการนำทาง', true);
+        return;
+    }
+    speak(`เริ่มนำทางล่าสุดไปยัง ${lastNavigationTarget.name || 'จุดหมายล่าสุด'}`, true);
+    if (lastNavigationTarget.type === 'plot' && findJobById(lastNavigationTarget.jobId)) {
+        selectedJobId = lastNavigationTarget.jobId;
+        await startNav();
+        return;
+    }
+    await startNavigationToPoint(lastNavigationTarget);
+}
+
+function isLatestNavigationCommand(text) {
+    return voiceHasAny(text, ['การนำทางล่าสุด', 'นำทางล่าสุด', 'เส้นทางล่าสุด', 'ไปที่ล่าสุด', 'กลับไปที่ล่าสุด', 'ไปจุดหมายล่าสุด']);
+}
+
 function getActiveSearchResults() {
     const mode = document.getElementById('search-mode')?.value || 'data';
     return mode === 'map' ? (window.currentPlaceSearchResults || []) : getFilteredJobs();
@@ -2003,11 +2031,12 @@ function getSearchResultName(result, mode) {
 
 function parseThaiResultNumber(text, action = 'select') {
     const words = [
-        ['สิบ', 10], ['เก้า', 9], ['แปด', 8], ['เจ็ด', 7], ['หก', 6],
+        ['ยี่สิบ', 20], ['สิบเก้า', 19], ['สิบแปด', 18], ['สิบเจ็ด', 17], ['สิบหก', 16],
+        ['สิบห้า', 15], ['สิบสี่', 14], ['สิบสาม', 13], ['สิบสอง', 12], ['สิบเอ็ด', 11], ['สิบ', 10], ['เก้า', 9], ['แปด', 8], ['เจ็ด', 7], ['หก', 6],
         ['ห้า', 5], ['สี่', 4], ['สาม', 3], ['สอง', 2], ['หนึ่ง', 1]
     ];
     const prefix = action === 'read' ? 'อ่าน(?:ให้)?' : '(?:เลือก|เลือกรายการ|รายการ|ลำดับ)';
-    const digitMatch = text.match(new RegExp(`${prefix}(?:รายการ|ลำดับ|ที่)?(10|[1-9])(?:รายการ)?`));
+    const digitMatch = text.match(new RegExp(`${prefix}(?:รายการ|ลำดับ|ที่)?(\\d+)(?:รายการ)?`));
     if (digitMatch) return Number(digitMatch[1]);
     for (const [word, number] of words) {
         if (new RegExp(`${prefix}(?:รายการ|ลำดับ|ที่)?${word}(?:รายการ)?`).test(text)) return number;
@@ -2019,7 +2048,7 @@ function readSearchResultsByVoice(count) {
     const mode = document.getElementById('search-mode')?.value || 'data';
     const results = getActiveSearchResults();
     if (!results.length) return speak('ยังไม่มีผลการค้นหา กรุณาค้นหาก่อน');
-    const numberToRead = Math.min(count || 3, results.length, 10);
+    const numberToRead = Math.min(Math.max(1, count || 3), results.length);
     const items = results.slice(0, numberToRead).map((result, index) =>
         `รายการที่ ${index + 1} ${getSearchResultName(result, mode)}`
     );
@@ -2154,6 +2183,11 @@ async function handleVoiceCommand(transcript) {
 
     if (isNavigationQuestion(cleanTranscript)) {
         answerNavigationQuestion(cleanTranscript, true);
+        return;
+    }
+
+    if (isLatestNavigationCommand(cleanTranscript)) {
+        await startLatestNavigationByVoice();
         return;
     }
 
@@ -3706,6 +3740,7 @@ async function startNavigationToPoint(target) {
         lng: Number(target.lng),
         initialDistance: map.distance(userMarker.getLatLng(), [Number(target.lat), Number(target.lng)])
     };
+    lastNavigationTarget = { ...activeNavigationTarget };
     activeRouteSummary = null;
     selectedJobId = null;
     isNavigating = true;
@@ -3799,6 +3834,7 @@ async function startNav() {
         jobId: job.id,
         initialDistance: map.distance(userMarker.getLatLng(), [job.lat, job.lng])
     };
+    lastNavigationTarget = { ...activeNavigationTarget };
     activeRouteSummary = null;
     isNavigating = true;
     job.prevStatus = (job.status === 'navigating') ? 'waiting' : job.status;
