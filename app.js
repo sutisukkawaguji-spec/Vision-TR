@@ -612,6 +612,8 @@ let activeNavigationTarget = null;
 let activeRouteSummary = null;
 let manualTravelMarker = null;
 let manualTravelTarget = null;
+let placeSearchPreviewMarker = null;
+let placeSearchPreviewTarget = null;
 let placeSearchRequestId = 0;
 let googlePlacesLoaderPromise = null;
 let googlePlacesSessionToken = null;
@@ -1091,6 +1093,7 @@ function setupDoubleTapTravelPin() {
 }
 
 async function setManualTravelPin(latlng, name = 'หมุดที่ปักบนแผนที่') {
+    removePlaceSearchPreview();
     manualTravelTarget = { lat: latlng.lat, lng: latlng.lng, name, type: 'manual' };
     if (manualTravelMarker) map.removeLayer(manualTravelMarker);
     manualTravelMarker = L.marker(latlng, {
@@ -1121,6 +1124,35 @@ async function setManualTravelPin(latlng, name = 'หมุดที่ปัก
     });
     if (result.isConfirmed) await startNavigationToPoint(manualTravelTarget);
     if (result.isDenied) window.open(`https://www.google.com/maps/dir/?api=1&destination=${latlng.lat},${latlng.lng}`, '_blank');
+}
+
+// Selecting a Places result should only reveal its location.  The second tap on
+// this marker is the explicit confirmation to create a travel pin or navigate.
+function showPlaceSearchPreview(latlng, name = 'สถานที่ค้นหา') {
+    removePlaceSearchPreview();
+    placeSearchPreviewTarget = { lat: latlng.lat, lng: latlng.lng, name };
+    placeSearchPreviewMarker = L.marker(latlng, {
+        pmIgnore: true,
+        icon: L.divIcon({
+            className: '',
+            html: '<div style="width:40px;height:48px;display:flex;align-items:flex-start;justify-content:center;filter:drop-shadow(0 3px 3px rgba(0,0,0,.4));"><i class="fa-solid fa-location-dot" style="font-size:44px;line-height:44px;color:#2563eb;-webkit-text-stroke:2px white;"></i></div>',
+            iconSize: [40, 48],
+            iconAnchor: [20, 44],
+            popupAnchor: [0, -44]
+        })
+    }).addTo(map).bindTooltip('แตะหมุดเพื่อปักหมุดหรือนำทาง', { permanent: false, direction: 'top' });
+    placeSearchPreviewMarker.on('click', async event => {
+        if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+        const target = placeSearchPreviewTarget;
+        if (!target) return;
+        await setManualTravelPin(L.latLng(target.lat, target.lng), target.name);
+    });
+}
+
+function removePlaceSearchPreview() {
+    if (placeSearchPreviewMarker && map?.hasLayer(placeSearchPreviewMarker)) map.removeLayer(placeSearchPreviewMarker);
+    placeSearchPreviewMarker = null;
+    placeSearchPreviewTarget = null;
 }
 
 function removeManualTravelPin() {
@@ -7441,7 +7473,7 @@ async function selectPlaceSearchResult(index) {
     document.getElementById('search-results')?.classList.remove('active');
     document.getElementById('inp-search').value = place.name || place.address || '';
     map.flyTo([place.lat, place.lng], Math.max(map.getZoom(), 16));
-    await setManualTravelPin(L.latLng(place.lat, place.lng), place.name);
+    showPlaceSearchPreview(L.latLng(place.lat, place.lng), place.name);
 }
 
 doSearch = async function () {
@@ -7468,7 +7500,7 @@ doSearch = async function () {
                 <button type="button" class="w-full text-left p-3 border-b hover:bg-purple-50" onclick="selectPlaceSearchResult(${index})">
                     <div class="text-sm font-bold text-gray-800"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>${v2EscapeHtml(place.name)}</div>
                     ${place.secondaryText ? `<div class="text-[10px] text-gray-500 mt-1">${v2EscapeHtml(place.secondaryText)}</div>` : ''}
-                    <div class="text-[10px] text-red-500 mt-1"><i class="fab fa-google mr-1"></i>${v2EscapeHtml(place.source)} · แตะเพื่อปักหมุดและนำทาง</div>
+                    <div class="text-[10px] text-red-500 mt-1"><i class="fab fa-google mr-1"></i>${v2EscapeHtml(place.source)} · แตะเพื่อแสดงตำแหน่งบนแผนที่</div>
                 </button>`).join('') : '<div class="p-3 text-xs text-gray-500">ไม่พบสถานที่ ลองระบุจังหวัดหรืออำเภอเพิ่ม</div>';
             results.classList.add('active');
         } catch (error) {
