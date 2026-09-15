@@ -1907,6 +1907,12 @@ async function handleDrivingVoiceCommand(cleanTranscript) {
         return;
     }
 
+    const wantsStartNavigation = /^(?:เริ่ม)?(?:นำทาง|เดินทาง)(?:ต่อ)?$/.test(cleanTranscript) || cleanTranscript === 'ไปเลย' || cleanTranscript === 'เริ่มเส้นทาง';
+    if (wantsStartNavigation) {
+        await startNavigationToCurrentVoiceTarget();
+        return;
+    }
+
     const searchCommand = extractVoiceSearchCommand(cleanTranscript);
     if (searchCommand) {
         if (searchCommand.mode !== 'map') {
@@ -1968,7 +1974,17 @@ function getNavigationTarget() {
     if (activeNavigationTarget) return activeNavigationTarget;
     const job = findJobById(selectedJobId || lastSelectedJobId);
     if (job) return { lat: job.lat, lng: job.lng, name: job.properties?.name || 'แปลงที่เลือก', type: 'plot', jobId: job.id };
-    return manualTravelTarget;
+    return manualTravelTarget || placeSearchPreviewTarget;
+}
+
+async function startNavigationToCurrentVoiceTarget() {
+    const target = getNavigationTarget();
+    if (!target) {
+        speak('ยังไม่มีจุดหมาย กรุณาเลือกรายการหรือค้นหาสถานที่ก่อน', true);
+        return;
+    }
+    speak(`เริ่มนำทางไปยัง ${target.name || 'จุดหมายที่เลือก'}`, true);
+    await startNavigationToPoint(target);
 }
 
 function getActiveSearchResults() {
@@ -2017,7 +2033,7 @@ async function selectSearchResultByVoice(number, navigate = false) {
     if (mode === 'map') {
         await selectPlaceSearchResult(index);
         const place = window.currentPlaceSearchResults?.[index];
-        if (!navigate) return speak(`เลือก ${getSearchResultName(place, mode)} แล้ว แตะหมุดเพื่อปักหมุดหรือนำทาง`);
+        if (!navigate) return speak(`เลือก ${getSearchResultName(place, mode)} แล้ว พูดว่า นำทาง เพื่อเริ่มเส้นทาง หรือแตะหมุดเพื่อปักหมุด`);
         if (!Number.isFinite(Number(place?.lat)) || !Number.isFinite(Number(place?.lng))) {
             return speak('ไม่พบพิกัดสำหรับนำทาง');
         }
@@ -2279,8 +2295,9 @@ async function handleVoiceCommand(transcript) {
     const isReadSearchItems = cleanTranscript.includes("อ่าน") && cleanTranscript.includes("รายการ");
     const isSelectSearchItem = !isReadSearchItems && (cleanTranscript.includes("เลือกรายการ") || cleanTranscript.includes("รายการที่") || cleanTranscript.includes("ลำดับที่"));
     const isNavigateSearchItem = isSelectSearchItem && cleanTranscript.includes("เดินทาง");
+    const isStartNavigation = /^(?:เริ่ม)?(?:นำทาง|เดินทาง)(?:ต่อ)?$/.test(cleanTranscript) || cleanTranscript === 'ไปเลย' || cleanTranscript === 'เริ่มเส้นทาง';
 
-    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isReadSearchItems && !isSelectSearchItem && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
+    const isSurvey = !isSave && !isNext && !isCancelNav && !isDeleteSurvey && !isShowLabels && !isHideLabels && !isShowPlot && !isShowPin && !isToggleBaseMap && !isShowDetails && !isClearNote && !isCloseSheet && !isFocusSearch && !isReadSearchItems && !isSelectSearchItem && !isStartNavigation && (cleanTranscript.includes("survey") || cleanTranscript.includes("สำรวจ") || cleanTranscript.includes("เปิดบันทึก") || cleanTranscript.includes("เซอร์เวย์") || cleanTranscript.includes("เซอเวย์") || cleanTranscript.includes("เสวย"));
 
     if (isSurvey) {
         let job = null;
@@ -2375,6 +2392,8 @@ async function handleVoiceCommand(transcript) {
     } else if (isFocusSearch) {
         const searchInput = document.getElementById('inp-search');
         if (searchInput) { searchInput.focus(); searchInput.select(); speak("ค้นหา"); }
+    } else if (isStartNavigation) {
+        await startNavigationToCurrentVoiceTarget();
     } else if (isReadSearchItems) {
         readSearchResultsByVoice(parseThaiResultNumber(cleanTranscript, 'read') || 3);
     } else if (isSelectSearchItem) {
