@@ -1907,6 +1907,37 @@ async function handleDrivingVoiceCommand(cleanTranscript) {
         return;
     }
 
+    const searchCommand = extractVoiceSearchCommand(cleanTranscript);
+    if (searchCommand) {
+        if (searchCommand.mode !== 'map') {
+            speak('ขณะขับขี่ ค้นหาได้เฉพาะสถานที่ พูดว่า ค้นหาสถานที่ ตามด้วยชื่อสถานที่', true);
+            return;
+        }
+        await startVoiceSearch(cleanTranscript, { readResults: true });
+        return;
+    }
+
+    const wantsReadResults = cleanTranscript.includes('อ่าน') && cleanTranscript.includes('รายการ');
+    if (wantsReadResults) {
+        readSearchResultsByVoice(parseThaiResultNumber(cleanTranscript, 'read') || 3);
+        return;
+    }
+
+    const wantsSelectResult = /^(?:เลือก|รายการที่|ลำดับที่)/.test(cleanTranscript);
+    if (wantsSelectResult) {
+        const itemNumber = parseThaiResultNumber(cleanTranscript);
+        if (!itemNumber) {
+            speak('กรุณาพูดว่า เลือกรายการที่ ตามด้วยหมายเลข และคำว่า เดินทาง', true);
+            return;
+        }
+        if (!cleanTranscript.includes('เดินทาง')) {
+            speak(`ต้องการไปยังรายการที่ ${itemNumber} ให้พูดว่า เลือกรายการที่ ${itemNumber} เดินทาง`, true);
+            return;
+        }
+        await selectSearchResultByVoice(itemNumber, true);
+        return;
+    }
+
     const wantsMode = cleanTranscript.includes('โหมดอะไร') || cleanTranscript.includes('สถานะการขับขี่') || cleanTranscript.includes('ความเร็ว');
     if (wantsMode) {
         speak(`โหมดขับขี่ปลอดภัย ความเร็วประมาณ ${Math.round(currentSpeedKmh)} กิโลเมตรต่อชั่วโมง`, true);
@@ -1916,7 +1947,7 @@ async function handleDrivingVoiceCommand(cleanTranscript) {
     const now = Date.now();
     if (now - lastDrivingSafetyReminder > 15000) {
         lastDrivingSafetyReminder = now;
-        speak('ขณะขับขี่ พูดว่า เหลือกี่กิโล ไปที่ไหน ความเร็วเท่าไหร่ หรือยกเลิกนำทาง', true);
+        speak('ขณะขับขี่ พูดว่า ค้นหาสถานที่ ตามด้วยชื่อสถานที่, อ่าน 3 รายการ, เลือกรายการที่ 1 เดินทาง, เหลือกี่กิโล, หรือยกเลิกนำทาง', true);
     }
 }
 
@@ -2054,7 +2085,7 @@ function extractVoiceSearchCommand(transcript) {
     return mapMatch?.[1]?.trim() ? { mode: 'map', query: mapMatch[1].trim(), label: 'สถานที่' } : null;
 }
 
-async function startVoiceSearch(transcript) {
+async function startVoiceSearch(transcript, { readResults = false } = {}) {
     const command = extractVoiceSearchCommand(transcript);
     if (!command) return false;
     const mode = document.getElementById('search-mode');
@@ -2069,7 +2100,12 @@ async function startVoiceSearch(transcript) {
         return true;
     }
     await doSearch();
-    speak(`ค้นหา${command.label} ${command.query} แล้ว เลือกรายการที่ต้องการบนหน้าจอ`);
+    if (readResults) {
+        speak(`ค้นหา${command.label} ${command.query} แล้ว`, true);
+        readSearchResultsByVoice(3);
+    } else {
+        speak(`ค้นหา${command.label} ${command.query} แล้ว เลือกรายการที่ต้องการบนหน้าจอ`);
+    }
     return true;
 }
 
