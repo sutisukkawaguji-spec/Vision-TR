@@ -2040,25 +2040,36 @@ function answerNavigationQuestion(text, force = false) {
     speak(`${prefix}${distanceText}${etaText}`, force);
 }
 
-function extractVoicePlaceQuery(transcript) {
+function extractVoiceSearchCommand(transcript) {
     const spoken = String(transcript || '').trim();
-    if (/รายการที่|แปลงถัดไป|จุดถัดไป/.test(spoken)) return '';
-    const match = spoken.match(/^(?:ช่วย)?(?:ค้นหาสถานที่|ค้นหาในแผนที่|หาร้าน|หาสถานที่|หาเส้นทางไป|นำทางไป|พาไป)\s*(.+)$/i);
-    return match?.[1]?.trim() || '';
+    if (/รายการที่|แปลงถัดไป|จุดถัดไป/.test(spoken)) return null;
+
+    const dataMatch = spoken.match(/^(?:ช่วย)?ค้นหาข้อมูลแปลง(?:ที่ดิน)?\s*(.*)$/i);
+    if (dataMatch) return { mode: 'data', query: dataMatch[1].trim(), label: 'ข้อมูลแปลง' };
+
+    const placeMatch = spoken.match(/^(?:ช่วย)?ค้นหาสถานที่\s*(.*)$/i);
+    if (placeMatch) return { mode: 'map', query: placeMatch[1].trim(), label: 'สถานที่' };
+
+    const mapMatch = spoken.match(/^(?:ช่วย)?(?:ค้นหาในแผนที่|หาร้าน|หาสถานที่|หาเส้นทางไป|นำทางไป|พาไป)\s*(.+)$/i);
+    return mapMatch?.[1]?.trim() ? { mode: 'map', query: mapMatch[1].trim(), label: 'สถานที่' } : null;
 }
 
-async function startVoicePlaceSearch(transcript) {
-    const query = extractVoicePlaceQuery(transcript);
-    if (!query) return false;
+async function startVoiceSearch(transcript) {
+    const command = extractVoiceSearchCommand(transcript);
+    if (!command) return false;
     const mode = document.getElementById('search-mode');
     const input = document.getElementById('inp-search');
     if (!mode || !input) return false;
-    mode.value = 'map';
-    onSearchModeChange(false);
-    input.value = query;
+    mode.value = command.mode;
+    onSearchModeChange(true);
+    input.value = command.query;
     input.focus();
+    if (!command.query) {
+        speak(`พร้อมค้นหา${command.label} กรุณาพูดคำที่ต้องการค้นหา`);
+        return true;
+    }
     await doSearch();
-    speak(`ค้นหาสถานที่ ${query} แล้ว เลือกรายการที่ต้องการบนหน้าจอ`);
+    speak(`ค้นหา${command.label} ${command.query} แล้ว เลือกรายการที่ต้องการบนหน้าจอ`);
     return true;
 }
 
@@ -2095,7 +2106,7 @@ async function handleVoiceCommand(transcript) {
         return;
     }
 
-    if (await startVoicePlaceSearch(transcript)) return;
+    if (await startVoiceSearch(transcript)) return;
 
     if (window.Swal && Swal.isVisible()) {
         const isStopReading = cleanTranscript.includes("หยุดอ่าน") || cleanTranscript.includes("หยุดพูด") || (cleanTranscript === "หยุด" && document.getElementById('swal-raw-data-container'));
