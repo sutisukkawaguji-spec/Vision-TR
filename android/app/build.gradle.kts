@@ -13,6 +13,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+
+        // This is the same public browser key used by the GitHub Pages app.
+        // Row-level security still applies because requests use the signed-in user token.
+        buildConfigField("String", "SUPABASE_URL", "\"https://eocbxntymzwbgqaodvse.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_FgUG7gVuo0sC_ILhzkToUw_IcZ0FjuZ\"")
     }
 
     compileOptions {
@@ -26,22 +31,7 @@ android {
 kotlin { jvmToolchain(17) }
 
 dependencies {
-    implementation("androidx.activity:activity-ktx:1.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
-
-val webRoot = rootProject.projectDir.parentFile
-val generatedWebAssets = layout.buildDirectory.dir("generated/visiontr-assets")
-
-val syncVisionTrWebAssets by tasks.registering(Copy::class) {
-    from(webRoot) {
-        include("index.html", "app.js", "config.js", "manifest.json", "service-worker.js")
-        include("favicon.png", "icon.png", "icon-192.png")
-    }
-    into(generatedWebAssets)
-}
-
-android.sourceSets.getByName("main").assets.srcDir(generatedWebAssets)
-tasks.named("preBuild").configure { dependsOn(syncVisionTrWebAssets) }
