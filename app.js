@@ -1972,6 +1972,10 @@ function voiceHasAny(text, phrases) {
 
 function getNavigationTarget() {
     if (activeNavigationTarget) return activeNavigationTarget;
+    // In place-search mode, the selected search marker is the user's most
+    // recent destination. Do not fall back to a previously selected plot.
+    const searchMode = document.getElementById('search-mode')?.value;
+    if (searchMode === 'map') return manualTravelTarget || placeSearchPreviewTarget || null;
     const job = findJobById(selectedJobId || lastSelectedJobId);
     if (job) return { lat: job.lat, lng: job.lng, name: job.properties?.name || 'แปลงที่เลือก', type: 'plot', jobId: job.id };
     return manualTravelTarget || placeSearchPreviewTarget;
