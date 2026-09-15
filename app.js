@@ -1818,6 +1818,70 @@ async function removeSurveyFeatureFromJob(jobId, featureId) {
     await syncJobsSilently();
 }
 
+function renderSurveyFeatureList(job) {
+    const section = document.getElementById('survey-feature-section');
+    const list = document.getElementById('survey-feature-list');
+    const count = document.getElementById('survey-feature-count');
+    if (!section || !list || !count) return;
+    const features = Array.isArray(job?.properties?.survey_features) ? job.properties.survey_features : [];
+    count.textContent = `${features.length} รูป`;
+    section.classList.toggle('hidden', features.length === 0);
+    if (features.length === 0) {
+        list.innerHTML = '';
+        return;
+    }
+    const labels = { Marker: 'จุด', Circle: 'วงกลม', Polygon: 'พื้นที่', Rectangle: 'สี่เหลี่ยม' };
+    list.innerHTML = features.map((feature, index) => {
+        const label = labels[feature.shape] || feature.shape || 'รูปวาด';
+        const status = feature.status === 'done' ? 'สำรวจแล้ว' : 'รอตรวจ';
+        return `<div class="flex items-center gap-2 rounded-xl bg-white border border-rose-100 px-3 py-2">
+            <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-bold">${index + 1}</span>
+            <button type="button" onclick="focusSurveyFeature('${job.id}', '${feature.id}')" class="min-w-0 flex-1 text-left">
+                <span class="block text-xs font-bold text-slate-700">${label}</span>
+                <span class="block text-[10px] text-slate-500">${status} · แตะเพื่อเลือกบนแผนที่</span>
+            </button>
+            <button type="button" onclick="deleteSurveyFeatureFromSheet(event, '${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-rose-500 hover:bg-rose-50" title="ลบรูปวาดนี้" aria-label="ลบรูปวาดนี้"><i class="fa-solid fa-trash"></i></button>
+        </div>`;
+    }).join('');
+}
+
+function focusSurveyFeature(jobId, featureId) {
+    const job = findJobById(jobId);
+    const feature = job?.properties?.survey_features?.find(item => item.id === featureId);
+    if (!feature || !map) return;
+    const featureLayer = markersGroup.getLayers().find(layer => layer.surveyFeatureId === featureId || layer.parentJobId === jobId && layer.surveyFeatureId === featureId);
+    if (featureLayer?.bringToFront) featureLayer.bringToFront();
+    if (featureLayer?.getBounds) {
+        const bounds = featureLayer.getBounds();
+        if (bounds?.isValid?.()) map.fitBounds(bounds, { padding: [80, 80], maxZoom: 18 });
+    } else if (Number.isFinite(Number(feature.lat)) && Number.isFinite(Number(feature.lng))) {
+        map.setView([Number(feature.lat), Number(feature.lng)], Math.max(map.getZoom(), 18));
+    }
+    Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'เลือกรูปวาดแล้ว ใช้ปุ่มถังขยะเพื่อลบ', timer: 1800, showConfirmButton: false });
+}
+
+async function deleteSurveyFeatureFromSheet(event, jobId, featureId) {
+    event?.stopPropagation();
+    const job = findJobById(jobId);
+    if (!job || !Array.isArray(job.properties?.survey_features)) return;
+    const confirmed = await Swal.fire({
+        title: 'ลบรูปวาดนี้?',
+        text: 'การลบจะไม่กระทบขอบเขตของแปลง Base Map',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'ลบรูปวาด',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#dc2626'
+    });
+    if (!confirmed.isConfirmed) return;
+    await removeSurveyFeatureFromJob(jobId, featureId);
+    const refreshed = findJobById(jobId);
+    if (refreshed) {
+        renderSurveyFeatureList(refreshed);
+        openSheetSilently(refreshed);
+    }
+}
+
 function markLayerAsBaseMap(layer) {
     const mark = target => {
         target.options.pmIgnore = true;
@@ -1830,7 +1894,10 @@ function markLayerAsBaseMap(layer) {
 function markLayerAsSurveyDrawing(layer) {
     const mark = target => {
         target.options.pmIgnore = false;
+        target.options.interactive = true;
+        target.options.bubblingMouseEvents = false;
         if (L.PM && typeof L.PM.reInitLayer === 'function') L.PM.reInitLayer(target);
+        if (typeof target.bringToFront === 'function') target.bringToFront();
     };
     mark(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
@@ -3731,6 +3798,11 @@ function renderMap(fitBounds = false) {
                 const surveyLayer = createSurveyFeatureLayer(job, feature);
                 if (!surveyLayer) return;
                 markersGroup.addLayer(surveyLayer);
+                // The child drawing must be reinitialized and brought forward only
+                // after it is on the map; otherwise the Base Map polygon captures
+                // the remove-tool click underneath it.
+                markLayerAsSurveyDrawing(surveyLayer);
+                if (typeof surveyLayer.bringToFront === 'function') surveyLayer.bringToFront();
                 group.addLayer(surveyLayer);
             });
         }
@@ -4116,6 +4188,7 @@ function openSheet(job) {
     document.getElementById('sheet-note').value = p.note || '';
     renderInlineRawData(job);
     renderDynamicSurveyForm(job);
+    renderSurveyFeatureList(job);
 
     if (document.getElementById('sheet-area')) {
         document.getElementById('sheet-area').value = p.area || '-';
@@ -4239,6 +4312,7 @@ function openSheetSilently(job) {
     if (document.activeElement !== noteEl) noteEl.value = p.note || '';
     renderInlineRawData(job);
     renderDynamicSurveyForm(job);
+    renderSurveyFeatureList(job);
 
     if (document.getElementById('sheet-area')) {
         document.getElementById('sheet-area').value = p.area || '-';
