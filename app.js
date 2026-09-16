@@ -2159,6 +2159,25 @@ function markLayerAsSurveyDrawing(layer) {
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
 }
 
+// A Leaflet CircleMarker lives in the vector pane.  During zoom animation that
+// pane is scaled as one surface, which makes a saved Point appear to grow and
+// cover nearby map details.  A regular marker is re-positioned independently
+// by Leaflet, so this visual point remains the same screen size at every zoom.
+function createFixedSurveyPointMarker(latlng, color, fillOpacity = 0.9) {
+    const pointColor = normalizeSurveyLayerColor(color);
+    return L.marker(latlng, {
+        icon: L.divIcon({
+            className: 'survey-point-leaflet-icon',
+            html: `<span class="survey-point-pin" style="--survey-point-color:${pointColor};--survey-point-opacity:${Math.max(0.35, Math.min(1, Number(fillOpacity) || 0.9))}"></span>`,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            popupAnchor: [0, -11]
+        }),
+        pmIgnore: false,
+        keyboard: true
+    });
+}
+
 function createSurveyFeatureLayer(job, feature) {
     const isSurveyed = feature.status === 'done' || job.status === 'done';
     const completedColor = normalizeSurveyLayerColor(feature.layer_color || job.properties?.form_layer_color || getActiveSurveyLayerSettings().color);
@@ -2169,7 +2188,7 @@ function createSurveyFeatureLayer(job, feature) {
     if (feature.shape === 'Circle') {
         layer = L.circle([feature.lat, feature.lng], { ...style, radius: Number(feature.radius) || 1 });
     } else if (feature.shape === 'Marker') {
-        layer = L.circleMarker([feature.lat, feature.lng], { ...style, radius: 8, fillOpacity: 0.9 });
+        layer = createFixedSurveyPointMarker([feature.lat, feature.lng], style.fillColor, 0.9);
     } else if (feature.geometry) {
         layer = L.geoJSON(feature.geometry, { pmIgnore: false, style: () => style });
     }
@@ -3951,13 +3970,7 @@ function renderMap(fitBounds = false) {
                     className: job.status === 'navigating' ? 'job-navigating-pulse' : ''
                 });
             } else if (job.properties?.is_custom_draw === true) {
-                layer = L.circleMarker([job.lat, job.lng], {
-                    radius: 9,
-                    color,
-                    fillColor: color,
-                    weight: 3,
-                    fillOpacity: job.status === 'done' ? 0.9 : 0.55
-                });
+                layer = createFixedSurveyPointMarker([job.lat, job.lng], color, job.status === 'done' ? 0.9 : 0.55);
             } else {
                 let iconUrl = job.status === 'done'
                     ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png'

@@ -1171,6 +1171,28 @@
             object-fit: contain;
         }
 
+        /* Saved survey Points use a Marker pane icon (not an SVG circle), so
+           Leaflet keeps it fixed while zooming rather than scaling the vector pane. */
+        #map .survey-point-leaflet-icon {
+            width: 22px !important;
+            height: 22px !important;
+            margin: 0 !important;
+            border: 0 !important;
+            background: transparent !important;
+        }
+        #map .survey-point-pin {
+            display: block;
+            width: 22px;
+            height: 22px;
+            box-sizing: border-box;
+            border: 3px solid #fff;
+            border-radius: 50% 50% 50% 4px;
+            background: var(--survey-point-color, #dc2626);
+            opacity: var(--survey-point-opacity, .9);
+            box-shadow: 0 2px 7px rgba(15, 23, 42, .45);
+            transform: rotate(-45deg);
+        }
+
         /* Unified responsive control system */
         :root {
             --ui-control-size: 44px;
@@ -2318,7 +2340,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.2" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.3" charset="UTF-8"></script>
 </body>
 
 </html>
