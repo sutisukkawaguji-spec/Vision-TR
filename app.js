@@ -8169,9 +8169,9 @@ doSearch = async function () {
     }
     const scopeHint = plotTerms.length > 1
         ? `<div class="px-3 py-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 border-b border-emerald-100">ค้นหาครบทุกเงื่อนไข: ${plotTerms.map(term => `<span class="inline-block bg-white border border-emerald-200 rounded px-1.5 py-0.5 mr-1">${v2EscapeHtml(term)}</span>`).join('')} · พบ ${hits.length} แปลง</div>`
-        : hits.length > 20 ? `<div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${hits.length} แปลง · แสดง 20 รายการแรก</div>` : '';
-    results.innerHTML = scopeHint;
-    hits.slice(0, 20).forEach(job => {
+        : `<div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${hits.length} แปลง · เลื่อนเพื่อดูรายการอื่น</div>`;
+    results.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between bg-white border-b border-gray-100 px-3 py-2"><span class="text-[10px] font-bold text-gray-600"><i class="fa-solid fa-location-crosshairs text-emerald-600 mr-1"></i>แตะรายการเพื่อซูมดูแปลง</span><button type="button" onclick="closePlotSearchResults()" class="w-7 h-7 rounded-full text-gray-500 hover:bg-gray-100" aria-label="ปิดผลค้นหา"><i class="fa-solid fa-xmark"></i></button></div>${scopeHint}`;
+    hits.slice(0, 50).forEach(job => {
         const properties = job.properties || {};
         const matches = v2MatchingFields(properties, plotTerms);
         const isSelected = job.id === selectedPlotSearchJobId;
@@ -8182,7 +8182,7 @@ doSearch = async function () {
                 ${properties.note ? `<div class="text-[10px] text-gray-500 truncate mt-0.5">${v2EscapeHtml(properties.note)}</div>` : ''}
             </button>`;
     });
-    results.innerHTML += `<div class="sticky bottom-0 flex gap-2 p-2 bg-white/95 border-t border-gray-100 backdrop-blur"><button type="button" onclick="closePlotSearchResults()" class="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-bold text-gray-600">ปิดผลค้นหา</button>${selectedPlotSearchJobId ? '<button type="button" onclick="openSelectedPlotSearchDetails()" class="flex-1 rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white">ดูรายละเอียดแปลง</button>' : '<span class="flex-1 py-2 text-center text-[10px] text-gray-400">แตะรายการเพื่อซูมดูตำแหน่ง</span>'}</div>`;
+    results.innerHTML += `<div class="sticky bottom-0 flex gap-2 p-2 bg-white/95 border-t border-gray-100 backdrop-blur">${selectedPlotSearchJobId ? '<button type="button" onclick="openSelectedPlotSearchDetails()" class="w-full rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white">ดูรายละเอียดแปลงที่เลือก</button>' : '<span class="w-full py-1 text-center text-[10px] text-gray-400">แสดงครั้งละประมาณ 3 รายการ · เลื่อนเพื่อดูต่อ</span>'}</div>`;
 };
 
 window.onSearchModeChange = onSearchModeChange;
