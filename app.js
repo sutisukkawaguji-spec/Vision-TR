@@ -5719,6 +5719,7 @@ async function deleteJob() {
         }
         window.pendingGeomanUpdates.delete(job.id);
 
+        clearDrawingMeasurements();
         closeSheet();
         showPendingActionsBar();
         Swal.fire({ toast: true, icon: 'success', title: 'ยกเลิกการวาดเรียบร้อย', timer: 1500, showConfirmButton: false });
@@ -5771,6 +5772,7 @@ async function deleteJob() {
                 }
 
                 // 4. Render map
+                clearDrawingMeasurements();
                 renderMap();
                 showLoading(false);
                 await Swal.fire({ toast: true, icon: 'success', title: 'ลบข้อมูลรูปแปลง/หมุดเรียบร้อยแล้ว', timer: 1500, showConfirmButton: false });
