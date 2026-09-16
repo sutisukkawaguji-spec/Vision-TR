@@ -442,6 +442,7 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             cursor: pointer;
             font-family: inherit;
+            text-decoration: none;
         }
 
         #job-counter {
@@ -1388,12 +1389,12 @@
 
     <div id="top-bar">
         <div class="top-row px-1 mb-2">
-            <button id="status-bar" type="button" onclick="openDashboard(event)" title="เปิด Dashboard สรุปผลสำรวจ" aria-label="เปิด Dashboard สรุปผลสำรวจ">
+            <a id="status-bar" href="dashboard.html" title="เปิด Dashboard สรุปผลสำรวจ" aria-label="เปิด Dashboard สรุปผลสำรวจ">
                 <i class="fa-solid fa-user-gear" style="color: #2563eb;"></i>
                 <span id="user-display">ตั้งค่า</span>
                 <span id="job-counter">0/0</span>
                 <i class="fa-solid fa-chart-column text-emerald-600"></i>
-            </button>
+            </a>
 
             <div class="control-btn-group">
                 <button class="control-btn" style="color: #2563eb;" onclick="togglePinLabels()" id="btn-label"
@@ -2282,7 +2283,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.3.2" charset="UTF-8"></script>
+    <script src="app.js?v=3.3.3" charset="UTF-8"></script>
 </body>
 
 </html>
