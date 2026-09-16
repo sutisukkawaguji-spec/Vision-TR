@@ -607,6 +607,7 @@ async function clearAllSupabaseJobs() {
 let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
+let selectedPlotSearchJobId = null, plotSearchFocusLayer = null;
 let dashboardProfiles = [], dashboardState = { year: 'all', graph: 'bar', fieldKey: '' };
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
@@ -7013,18 +7014,48 @@ function doSearch() {
     });
 }
 
-function openSheetFromSearch(id) {
-    const j = findJobById(id);
-    if (j) {
-        openSheet(j);
-        document.getElementById('sheet').classList.add('minimized');
-        document.getElementById('search-results').classList.remove('active');
-        document.getElementById('inp-search').value = '';
-        if (userMarker) {
-            map.fitBounds(L.latLngBounds([userMarker.getLatLng(), [j.lat, j.lng]]), { padding: [80, 80] });
-        }
-    }
+function clearPlotSearchFocus() {
+    if (plotSearchFocusLayer && map?.hasLayer(plotSearchFocusLayer)) map.removeLayer(plotSearchFocusLayer);
+    plotSearchFocusLayer = null;
 }
+
+function previewPlotFromSearch(id) {
+    const job = findJobById(id);
+    if (!job || !map) return;
+    selectedPlotSearchJobId = id;
+    clearPlotSearchFocus();
+    const style = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', interactive: false };
+    if (job.geometry?.type?.includes('Polygon')) {
+        plotSearchFocusLayer = L.geoJSON(job.geometry, { style });
+    } else if (job.properties?.is_circle && job.properties.radius) {
+        plotSearchFocusLayer = L.circle([job.lat, job.lng], { ...style, radius: Number(job.properties.radius) });
+    } else {
+        plotSearchFocusLayer = L.circleMarker([job.lat, job.lng], { ...style, radius: 16, fillOpacity: 0.28 });
+    }
+    plotSearchFocusLayer.addTo(map);
+    if (plotSearchFocusLayer.bringToFront) plotSearchFocusLayer.bringToFront();
+    const bounds = plotSearchFocusLayer.getBounds?.();
+    if (bounds?.isValid?.()) map.flyToBounds(bounds, { padding: [70, 90], maxZoom: 18, duration: 0.55 });
+    else map.flyTo([job.lat, job.lng], Math.max(map.getZoom(), 17), { duration: 0.55 });
+    doSearch();
+}
+
+function openSheetFromSearch(id) { previewPlotFromSearch(id); }
+
+function openSelectedPlotSearchDetails() {
+    const job = findJobById(selectedPlotSearchJobId);
+    if (!job) return;
+    openSheet(job);
+    document.getElementById('search-results')?.classList.remove('active');
+}
+
+function closePlotSearchResults() {
+    document.getElementById('search-results')?.classList.remove('active');
+    document.getElementById('inp-search')?.blur();
+}
+window.previewPlotFromSearch = previewPlotFromSearch;
+window.openSelectedPlotSearchDetails = openSelectedPlotSearchDetails;
+window.closePlotSearchResults = closePlotSearchResults;
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -7986,6 +8017,8 @@ function onSearchModeChange(clearValue = true) {
     const results = document.getElementById('search-results');
     if (!input || !results) return;
     if (clearValue) input.value = '';
+    selectedPlotSearchJobId = null;
+    clearPlotSearchFocus();
     input.placeholder = mode === 'map' ? 'ค้นหาสถานที่ ร้านค้า หรือที่อยู่...' : 'ค้นหาข้อมูลแปลง...';
     results.innerHTML = '';
     results.classList.remove('active');
@@ -8089,6 +8122,8 @@ doSearch = async function () {
     const results = document.getElementById('search-results');
     results.innerHTML = '';
     if (!search) {
+        selectedPlotSearchJobId = null;
+        clearPlotSearchFocus();
         results.classList.remove('active');
         return;
     }
@@ -8123,6 +8158,10 @@ doSearch = async function () {
 
     renderMap();
     const hits = v2RankPlotSearchResults(getFilteredJobs(), plotTerms);
+    if (selectedPlotSearchJobId && !hits.some(job => job.id === selectedPlotSearchJobId)) {
+        selectedPlotSearchJobId = null;
+        clearPlotSearchFocus();
+    }
     results.classList.toggle('active', true);
     if (!hits.length) {
         results.innerHTML = `<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-magnifying-glass mr-1"></i>ไม่พบแปลงที่ตรงกับ ${plotTerms.map(term => `“${v2EscapeHtml(term)}”`).join(' + ')}<div class="text-[10px] text-gray-400 mt-1">ลองตัดคำบางส่วนออก หรือใช้ / เพื่อค้นหาหลายเงื่อนไข</div></div>`;
@@ -8135,13 +8174,15 @@ doSearch = async function () {
     hits.slice(0, 20).forEach(job => {
         const properties = job.properties || {};
         const matches = v2MatchingFields(properties, plotTerms);
+        const isSelected = job.id === selectedPlotSearchJobId;
         results.innerHTML += `
-            <div class="p-3 border-b cursor-pointer hover:bg-gray-50" onclick="openSheetFromSearch('${v2EscapeHtml(job.id)}')">
-                <div class="text-sm font-bold text-gray-800">${v2EscapeHtml(properties.name || '(ไม่มีชื่อแปลง)')}</div>
+            <button type="button" class="w-full text-left p-3 border-b hover:bg-gray-50 ${isSelected ? 'plot-search-selected' : ''}" onclick="previewPlotFromSearch('${v2EscapeHtml(job.id)}')">
+                <div class="flex items-center justify-between gap-2"><div class="text-sm font-bold text-gray-800 truncate">${v2EscapeHtml(properties.name || '(ไม่มีชื่อแปลง)')}</div>${isSelected ? '<span class="shrink-0 text-[10px] font-bold text-emerald-700"><i class="fa-solid fa-location-crosshairs"></i> บนแผนที่</span>' : ''}</div>
                 <div class="text-[10px] text-blue-600 mt-0.5">${v2EscapeHtml(matches.join(' · ') || `พบใน Base Map · ${job.category}`)}</div>
                 ${properties.note ? `<div class="text-[10px] text-gray-500 truncate mt-0.5">${v2EscapeHtml(properties.note)}</div>` : ''}
-            </div>`;
+            </button>`;
     });
+    results.innerHTML += `<div class="sticky bottom-0 flex gap-2 p-2 bg-white/95 border-t border-gray-100 backdrop-blur"><button type="button" onclick="closePlotSearchResults()" class="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-bold text-gray-600">ปิดผลค้นหา</button>${selectedPlotSearchJobId ? '<button type="button" onclick="openSelectedPlotSearchDetails()" class="flex-1 rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white">ดูรายละเอียดแปลง</button>' : '<span class="flex-1 py-2 text-center text-[10px] text-gray-400">แตะรายการเพื่อซูมดูตำแหน่ง</span>'}</div>`;
 };
 
 window.onSearchModeChange = onSearchModeChange;

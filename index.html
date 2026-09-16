@@ -417,7 +417,7 @@
             z-index: 1001;
             background: white;
             border-radius: 12px;
-            max-height: 250px;
+            max-height: min(52vh, 420px);
             overflow-y: auto;
             display: none;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
@@ -426,6 +426,11 @@
 
         #search-results.active {
             display: block;
+        }
+
+        .plot-search-selected {
+            background: #ecfdf5 !important;
+            border-left: 4px solid #10b981 !important;
         }
 
         #status-bar {
@@ -2286,7 +2291,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.3.5" charset="UTF-8"></script>
+    <script src="app.js?v=3.3.6" charset="UTF-8"></script>
 </body>
 
 </html>
