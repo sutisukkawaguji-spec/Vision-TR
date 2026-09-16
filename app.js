@@ -4660,11 +4660,8 @@ function renderInlineRawData(job) {
     const container = document.getElementById('inline-raw-data');
     if (!container || !job) return;
     const entries = getPlotDataEntries(job);
-    // A hand-drawn shape has only system metadata.  Do not show an empty
-    // "plot data" card in that case; its useful details live in the form.
-    document.getElementById('plot-data-section')?.classList.toggle('hidden', entries.length === 0);
     if (entries.length === 0) {
-        container.innerHTML = '<div class="p-3 text-xs text-gray-400">ไม่มีข้อมูลแปลงที่ต้องแสดง</div>';
+        container.innerHTML = '<div class="p-3 text-xs text-gray-400">ไม่มีข้อมูลแปลงเพิ่มเติม</div>';
         return;
     }
     container.innerHTML = `<table class="w-full text-[11px] border-collapse"><tbody>${entries.map(([key, value], index) => {
