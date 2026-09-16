@@ -5415,7 +5415,9 @@ function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     if (!container) return;
     const form = getActiveSurveyForm();
-    const fields = (form?.fields || []).filter(field => ['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)));
+    // Work group scopes the dashboard.  Only a Dropdown explicitly marked by
+    // its form owner divides the results into graph categories.
+    const fields = (form?.fields || []).filter(field => field.dashboard_group === true && ['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)));
     const selectedKey = document.getElementById('dashboard-group-field')?.value || fields[0]?.key || '';
     const selectedField = fields.find(field => field.key === selectedKey);
     const features = dbJobs.flatMap(job => (job.properties?.survey_features || []).map(feature => ({ ...feature, parentName: job.properties?.name || job.id, parentId: job.id })))
@@ -5436,7 +5438,7 @@ function renderDashboard() {
         <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปวาดที่สำรวจ</p><p class="text-2xl font-black text-slate-800">${features.length}</p></div>
         <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">แปลงที่มีผล</p><p class="text-2xl font-black text-slate-800">${new Set(features.map(feature => feature.parentId)).size}</p></div>
         <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปถ่าย</p><p class="text-2xl font-black text-slate-800">${photoCount}</p></div></div>`;
-    const selector = fields.length ? `<label class="block text-xs font-bold text-slate-600 mb-2">สรุปตาม Dropdown</label><select id="dashboard-group-field" onchange="renderDashboard()" class="w-full p-3 rounded-xl border border-slate-200 bg-white mb-3">${fields.map(field => `<option value="${v2EscapeHtml(field.key)}" ${field.key === selectedKey ? 'selected' : ''}>${v2EscapeHtml(field.label)}</option>`).join('')}</select>` : '<div class="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800">ยังไม่มี Dropdown ในแบบฟอร์มกลุ่มงานนี้ กรุณาเพิ่มช่องประเภท Dropdown ก่อน</div>';
+    const selector = fields.length ? `<label class="block text-xs font-bold text-slate-600 mb-2">แบ่งกราฟด้วย Dropdown</label><select id="dashboard-group-field" onchange="renderDashboard()" class="w-full p-3 rounded-xl border border-slate-200 bg-white mb-3">${fields.map(field => `<option value="${v2EscapeHtml(field.key)}" ${field.key === selectedKey ? 'selected' : ''}>${v2EscapeHtml(field.label)}</option>`).join('')}</select>` : '<div class="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800">ยังไม่ได้กำหนด Dropdown สำหรับกราฟ: ไปที่ ตั้งค่า → แบบฟอร์ม → แก้ไข Dropdown แล้วเลือก “ใช้ Dropdown นี้จัดกลุ่มกราฟบน Dashboard”</div>';
     const bars = counts.size ? Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => `<button onclick='dashboardFocusCategory(${JSON.stringify(selectedKey)},${JSON.stringify(label)})' class="w-full text-left mb-3"><div class="flex justify-between text-xs font-bold text-slate-700 mb-1"><span>${v2EscapeHtml(label)}</span><span>${count}</span></div><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:${(count / max) * 100}%"></div></div></button>`).join('') : '<div class="text-center text-sm text-slate-400 py-8">ยังไม่มีผลสำรวจที่มีค่าจาก Dropdown นี้</div>';
     container.innerHTML = `${cards}<div class="bg-white rounded-2xl border border-slate-200 p-4">${selector}<h2 class="font-bold text-slate-800 mb-4">กราฟจำนวนผลสำรวจ</h2>${bars}</div>`;
 }
@@ -5755,7 +5757,7 @@ function renderSurveyFormFieldsList() {
             <span class="text-gray-300 cursor-grab"><i class="fa-solid fa-grip-vertical"></i></span>
             <div class="flex-1 min-w-0">
                 <div class="text-xs font-bold text-gray-800 truncate">${v2EscapeHtml(field.label)} ${field.required ? '<span class="text-red-500">*</span>' : ''}</div>
-                <div class="text-[9px] text-gray-500 truncate">${v2EscapeHtml(field.key)} · ${v2EscapeHtml(SURVEY_FIELD_TYPES[normalizeSurveyFieldType(field.type)] || field.type)}${['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)) ? ` · ${normalizeSurveyFieldOptions(field.options).filter(option => option.active).length} ตัวเลือก` : ''}</div>
+                <div class="text-[9px] text-gray-500 truncate">${v2EscapeHtml(field.key)} · ${v2EscapeHtml(SURVEY_FIELD_TYPES[normalizeSurveyFieldType(field.type)] || field.type)}${['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)) ? ` · ${normalizeSurveyFieldOptions(field.options).filter(option => option.active).length} ตัวเลือก` : ''}${field.dashboard_group ? ' · สรุป Dashboard' : ''}</div>
                 ${field.source_key ? `<div class="text-[9px] text-violet-600 truncate"><i class="fa-solid fa-link mr-0.5"></i> ดึงจาก Base Map: ${v2EscapeHtml(field.source_key)}</div>` : ''}
             </div>
             <button onclick="moveSurveyFormField(${index},-1)" class="w-8 h-8 rounded-lg bg-gray-50 text-gray-500" title="ขึ้น"><i class="fa-solid fa-chevron-up"></i></button>
@@ -5802,6 +5804,7 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
             <label class="text-xs font-bold">คำแนะนำในช่อง</label><input id="ff-placeholder" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.placeholder || '')}">
             <label class="text-xs font-bold">ตัวเลือก Dropdown (หนึ่งรายการต่อบรรทัด)</label><textarea id="ff-options" class="swal2-textarea !m-0 !w-full" rows="4">${v2EscapeHtml(normalizeSurveyFieldOptions(existing?.options).filter(option => option.active).map(option => option.label).join('\n'))}</textarea>
             <p class="text-[10px] text-gray-500">แก้ชื่อในบรรทัดเดิมได้เลย ผลสำรวจเก่าจะเปลี่ยนชื่อให้ด้วย; ลบออกจากรายการจะเก็บเป็นค่าเก่าเพื่อไม่ให้ข้อมูลสูญหาย</p>
+            <label class="flex items-center gap-2 text-xs font-bold"><input id="ff-dashboard-group" type="checkbox" ${existing?.dashboard_group ? 'checked' : ''}> ใช้ Dropdown นี้จัดกลุ่มกราฟบน Dashboard</label>
             <label class="flex items-center gap-2 text-xs font-bold"><input id="ff-required" type="checkbox" ${existing?.required ? 'checked' : ''}> จำเป็นต้องกรอก</label>
         </div>`,
         showCancelButton: true, confirmButtonText: 'ตกลง', cancelButtonText: 'ยกเลิก',
@@ -5827,6 +5830,7 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
                 source_key: document.getElementById('ff-source-key').value,
                 placeholder: document.getElementById('ff-placeholder').value.trim(),
                 required: document.getElementById('ff-required').checked,
+                dashboard_group: ['select', 'multiselect'].includes(selectedType) && document.getElementById('ff-dashboard-group').checked,
                 options: parsedOptions
             };
         }
