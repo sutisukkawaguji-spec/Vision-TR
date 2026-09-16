@@ -125,11 +125,10 @@ function entryMatches(entry) {
   return (!term || haystack.includes(term)) && (!fieldTerm || String(selected).toLocaleLowerCase('th').includes(fieldTerm));
 }
 function entryPhotos(entry) { return (entry.images || []).map(image => typeof image === 'string' ? image : image?.url).filter(Boolean); }
-function renderEntryBody(entry, imageKey) {
-  const values = featureDisplayValues(entry).slice(0, 4);
+function dashboardEntryDetail(entry, title) {
+  const values = featureDisplayValues(entry);
   const photos = entryPhotos(entry);
-  const imageUrl = photos.map((url, index) => dashboardExpandedImages.get(`${imageKey}_${index}`)).find(Boolean);
-  return `<div class="mt-2 text-[11px] text-slate-600">${values.length ? values.map(item => `<span class="inline-block mr-2 mb-1 rounded-md bg-slate-100 px-2 py-1">${esc(item.label)}: <b>${esc(item.value)}</b></span>`).join('') : '<span class="text-slate-400">ยังไม่มีค่าฟอร์ม</span>'}${entry.note ? `<p class="mt-1 text-slate-500">${esc(entry.note)}</p>` : ''}<div class="flex flex-wrap gap-2 mt-2">${photos.map((url, index) => `<button type="button" onclick='toggleSurveyImage(${JSON.stringify(`${imageKey}_${index}`)},${JSON.stringify(url)})' class="rounded-lg overflow-hidden border border-slate-200"><img src="${esc(url)}" class="w-14 h-14 object-cover" alt="รูปสำรวจ"></button>`).join('')}</div>${imageUrl ? `<img src="${esc(imageUrl)}" class="mt-3 max-h-80 max-w-full rounded-xl border border-slate-200 object-contain bg-slate-50" alt="รูปสำรวจขนาดใหญ่">` : ''}</div>`;
+  return `<div class="text-left space-y-3"><div><p class="text-xs text-slate-500">${esc(title)}</p><p class="font-bold text-slate-800">${esc(entry.name || entry.parentName || 'รายการสำรวจ')}</p></div><div class="space-y-1">${values.length ? values.map(item => `<div class="flex justify-between gap-4 text-sm border-b border-slate-100 py-1"><span>${esc(item.label)}</span><b class="text-right">${esc(item.value)}</b></div>`).join('') : '<p class="text-sm text-slate-400">ยังไม่มีข้อมูลฟอร์ม</p>'}</div>${entry.note ? `<div class="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">${esc(entry.note)}</div>` : ''}${photos.length ? `<div><p class="text-xs font-bold text-slate-500 mb-2">รูปถ่าย · แตะเพื่อดูภาพใหญ่</p><div class="flex flex-wrap gap-2">${photos.map((url,index) => `<button type="button" onclick='showDashboardGallery(${JSON.stringify(photos)},${index})' class="rounded-lg overflow-hidden border border-slate-200"><img src="${esc(url)}" class="w-16 h-16 object-cover" alt="รูปสำรวจ"></button>`).join('')}</div></div>` : ''}</div>`;
 }
 function renderSurveyList() {
   const groups = dashboardRecords.map(record => {
@@ -141,6 +140,7 @@ function renderSurveyList() {
     if (!children.length) return matchesMain ? { record, main, children: [], visibleChildren: [] } : null;
     return (matchesMain || matchingChildren.length) ? { record, main, children, visibleChildren: matchingChildren } : null;
   }).filter(Boolean).slice(0, 300);
+  window.dashboardListGroups = new Map();
   document.getElementById('survey-list-count').textContent = `${groups.length} แปลง`;
   document.getElementById('survey-list').innerHTML = groups.length ? groups.map(group => {
     const id = group.record.id;
@@ -148,15 +148,22 @@ function renderSurveyList() {
     const filtering = Boolean(dashboardState.search || dashboardState.filterField || dashboardState.filterValue);
     const expanded = dashboardExpandedRecords.has(id) || (filtering && group.visibleChildren.length > 0);
     const shownChildren = filtering ? group.visibleChildren : group.children;
-    const childSummary = hasChildren ? `${group.children.length} รายการย่อย${shownChildren.length !== group.children.length ? ` · ตรงเงื่อนไข ${shownChildren.length}` : ''}` : 'ข้อมูลแปลงหลัก';
-    const mainBody = !hasChildren ? renderEntryBody(group.main, `main_${id}`) : '';
-    const childHtml = expanded ? `<div class="mt-2 ml-3 pl-3 border-l-2 border-emerald-200 space-y-2">${shownChildren.length ? shownChildren.map((child, index) => `<article class="rounded-xl bg-emerald-50/50 border border-emerald-100 p-3"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(child.name || `รายการย่อย ${index + 1}`)}</p><p class="text-[10px] text-slate-400">${fmtDate(child.recorded_at || child.updated_at)}</p></div><span class="text-xs text-emerald-700">${entryPhotos(child).length} <i class="fa-solid fa-image"></i></span></div>${renderEntryBody(child, `child_${id}_${child.id || index}`)}</article>`).join('') : '<p class="p-3 text-xs text-slate-400">ไม่มีรายการย่อยที่ตรงกับตัวกรอง</p>'}</div>` : '';
-    return `<article class="rounded-xl border border-slate-200 bg-white p-3"><div class="flex items-start gap-2"><button type="button" onclick="toggleSurveyRecord('${esc(id)}')" class="mt-0.5 w-8 h-8 rounded-lg ${hasChildren ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}" ${hasChildren ? '' : 'disabled'}>${hasChildren ? `<i class="fa-solid fa-${expanded ? 'minus' : 'plus'}"></i>` : '<i class="fa-solid fa-file-lines"></i>'}</button><div class="min-w-0 flex-1"><p class="text-sm font-bold text-slate-800 truncate">${esc(group.main.parentName)}</p><p class="text-[11px] text-slate-500">${childSummary}</p>${mainBody}</div></div>${childHtml}</article>`;
+    const childSummary = hasChildren ? `${group.children.length} รายการย่อย${shownChildren.length !== group.children.length ? ` · ตรงเงื่อนไข ${shownChildren.length}` : ''}` : 'ข้อมูลบันทึกแปลงหลัก';
+    group.shownChildren = shownChildren;
+    window.dashboardListGroups.set(id, group);
+    const childHtml = expanded ? `<div class="mt-2 ml-3 pl-3 border-l-2 border-emerald-200 space-y-2">${shownChildren.length ? shownChildren.map((child, index) => `<button type="button" onclick="openDashboardChild('${esc(id)}',${index})" class="w-full text-left rounded-xl bg-emerald-50/50 border border-emerald-100 p-3 hover:bg-emerald-100 transition"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(child.name || `รายการย่อย ${index + 1}`)}</p><p class="text-[10px] text-slate-400">${fmtDate(child.recorded_at || child.updated_at)} · กดเพื่อดูรายละเอียด</p></div><span class="text-xs text-emerald-700">${entryPhotos(child).length} <i class="fa-solid fa-image"></i></span></div></button>`).join('') : '<p class="p-3 text-xs text-slate-400">ไม่มีรายการย่อยที่ตรงกับตัวกรอง</p>'}</div>` : '';
+    return `<article class="rounded-xl border border-slate-200 bg-white p-3"><div class="flex items-start gap-2"><button type="button" onclick="toggleSurveyRecord('${esc(id)}')" class="mt-0.5 w-8 h-8 rounded-lg ${hasChildren ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}" ${hasChildren ? '' : 'disabled'}>${hasChildren ? `<i class="fa-solid fa-${expanded ? 'minus' : 'plus'}"></i>` : '<i class="fa-solid fa-file-lines"></i>'}</button><button type="button" onclick="openDashboardRecord('${esc(id)}')" class="min-w-0 flex-1 text-left rounded-lg hover:bg-slate-50 p-1"><p class="text-sm font-bold text-slate-800 truncate">${esc(group.main.parentName)}</p><p class="text-[11px] text-slate-500">${childSummary} · กดเพื่อดูรายละเอียดหลัก</p></button></div>${childHtml}</article>`;
   }).join('') : '<p class="text-center py-10 text-sm text-slate-400">ไม่พบรายการที่ตรงกับเงื่อนไข</p>';
 }
 function toggleSurveyRecord(id) { if (dashboardExpandedRecords.has(id)) dashboardExpandedRecords.delete(id); else dashboardExpandedRecords.add(id); renderSurveyList(); }
-function toggleSurveyImage(key, url) { if (dashboardExpandedImages.get(key) === url) dashboardExpandedImages.delete(key); else dashboardExpandedImages.set(key, url); renderSurveyList(); }
+function openDashboardRecord(id) { const group = window.dashboardListGroups?.get(id); if (group && window.Swal) Swal.fire({ title: 'รายละเอียดแปลงหลัก', html: dashboardEntryDetail(group.main, 'ข้อมูลแปลงหลัก'), width: 620, confirmButtonText: 'ปิด' }); }
+function openDashboardChild(id, index) { const child = window.dashboardListGroups?.get(id)?.shownChildren?.[index]; if (child && window.Swal) Swal.fire({ title: 'รายละเอียดรายการย่อย', html: dashboardEntryDetail(child, child.parentName || 'แปลงหลัก'), width: 620, confirmButtonText: 'ปิด' }); }
+function showDashboardGallery(images, index = 0) { window.dashboardGalleryImages = images; window.dashboardGalleryIndex = index; const image = images[index]; if (!image || !window.Swal) return; Swal.fire({ showCloseButton: true, showConfirmButton: false, width: 760, html: `<div class="relative flex items-center justify-center min-h-[360px]"><button type="button" onclick="moveDashboardGallery(-1)" ${index ? '' : 'disabled'} class="absolute left-0 w-10 h-10 rounded-full bg-black/60 text-white disabled:opacity-20"><i class="fa-solid fa-chevron-left"></i></button><img src="${esc(image)}" class="max-h-[65vh] max-w-[88%] object-contain rounded-xl"><button type="button" onclick="moveDashboardGallery(1)" ${index < images.length - 1 ? '' : 'disabled'} class="absolute right-0 w-10 h-10 rounded-full bg-black/60 text-white disabled:opacity-20"><i class="fa-solid fa-chevron-right"></i></button></div><p class="mt-2 text-sm text-slate-500">${index + 1} / ${images.length}</p>` }); }
+function moveDashboardGallery(step) { showDashboardGallery(window.dashboardGalleryImages || [], (window.dashboardGalleryIndex || 0) + step); }
 window.toggleSurveyRecord = toggleSurveyRecord;
-window.toggleSurveyImage = toggleSurveyImage;
+window.openDashboardRecord = openDashboardRecord;
+window.openDashboardChild = openDashboardChild;
+window.showDashboardGallery = showDashboardGallery;
+window.moveDashboardGallery = moveDashboardGallery;
 function showError(message) { document.getElementById('dashboard-loading').innerHTML=`<i class="fa-solid fa-triangle-exclamation mr-2 text-amber-500"></i>${esc(message)}`; }
 startDashboard().catch(error => showError(error.message));
