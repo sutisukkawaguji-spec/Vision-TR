@@ -655,6 +655,9 @@ let markerJustClicked = false;
 let ignoreNextMapClick = false;
 let isMapClickBlocked = false;
 let justDeletedJobId = null;
+let isThreePointRectangleMode = false;
+let threePointRectanglePoints = [];
+let threePointRectanglePreviewGroup = null;
 window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
@@ -942,6 +945,7 @@ function initApp() {
     map.on('dragstart', () => { if (isFollowing) toggleGPSFollow(false); });
 
     map.on('click', () => {
+        if (isThreePointRectangleMode) return;
         if (ignoreNextMapClick) {
             ignoreNextMapClick = false;
             return;
@@ -3277,6 +3281,94 @@ function watchDrawingMeasurements(event) {
     refresh();
 }
 
+function initThreePointRectanglePreview() {
+    if (!threePointRectanglePreviewGroup && map) threePointRectanglePreviewGroup = L.layerGroup().addTo(map);
+}
+
+function getThreePointRectangleCorners(start, end, widthPoint) {
+    if (!map || !start || !end || !widthPoint) return null;
+    const zoom = map.getZoom();
+    const a = map.project(start, zoom);
+    const b = map.project(end, zoom);
+    const c = map.project(widthPoint, zoom);
+    const direction = b.subtract(a);
+    const length = Math.hypot(direction.x, direction.y);
+    if (length < 1) return null;
+    const normal = L.point(-direction.y / length, direction.x / length);
+    const width = (c.x - a.x) * normal.x + (c.y - a.y) * normal.y;
+    if (Math.abs(width) < 1) return null;
+    const offset = normal.multiplyBy(width);
+    return [map.unproject(a, zoom), map.unproject(b, zoom), map.unproject(b.add(offset), zoom), map.unproject(a.add(offset), zoom)];
+}
+
+function renderThreePointRectanglePreview(pointer = null) {
+    initThreePointRectanglePreview();
+    threePointRectanglePreviewGroup.clearLayers();
+    const [start, end] = threePointRectanglePoints;
+    if (!start) return;
+    L.circleMarker(start, { radius: 6, color: '#7c3aed', fillColor: '#fff', fillOpacity: 1, weight: 3, interactive: false }).addTo(threePointRectanglePreviewGroup);
+    if (!end) return;
+    L.polyline([start, end], { color: '#7c3aed', weight: 4, dashArray: '7 5', interactive: false }).addTo(threePointRectanglePreviewGroup);
+    addMapSideLabel(threePointRectanglePreviewGroup, start, end);
+    const corners = pointer ? getThreePointRectangleCorners(start, end, pointer) : null;
+    if (!corners) return;
+    L.polygon(corners, { color: '#7c3aed', fillColor: '#a78bfa', fillOpacity: .22, weight: 3, interactive: false }).addTo(threePointRectanglePreviewGroup);
+    for (let index = 0; index < corners.length; index++) addMapSideLabel(threePointRectanglePreviewGroup, corners[index], corners[(index + 1) % corners.length]);
+    const area = calculatePolygonArea(corners);
+    const center = L.polygon(corners).getBounds().getCenter();
+    L.marker(center, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] }) })
+        .bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, { permanent: true, direction: 'center', className: 'ruler-area-tooltip' })
+        .addTo(threePointRectanglePreviewGroup).openTooltip();
+}
+
+function stopThreePointRectangleMode() {
+    if (!map) return;
+    isThreePointRectangleMode = false;
+    threePointRectanglePoints = [];
+    threePointRectanglePreviewGroup?.clearLayers();
+    map.off('click', onThreePointRectangleClick);
+    map.off('mousemove', onThreePointRectangleMove);
+    document.getElementById('btn-three-point-rectangle')?.classList.remove('active');
+    document.getElementById('btn-three-point-rectangle')?.removeAttribute('aria-pressed');
+}
+
+function startThreePointRectangleMode() {
+    if (!map) return;
+    if (isThreePointRectangleMode) return stopThreePointRectangleMode();
+    if (map.pm?.disableDraw) map.pm.disableDraw('Rectangle');
+    clearDrawingMeasurements();
+    isThreePointRectangleMode = true;
+    threePointRectanglePoints = [];
+    initThreePointRectanglePreview();
+    map.on('click', onThreePointRectangleClick);
+    map.on('mousemove', onThreePointRectangleMove);
+    const button = document.getElementById('btn-three-point-rectangle');
+    button?.classList.add('active');
+    button?.setAttribute('aria-pressed', 'true');
+    Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'วาดสี่เหลี่ยม 3 จุด', text: '1) จุดเริ่ม  2) ปลายกำหนดแนวยาว  3) จุดกำหนดความกว้าง', timer: 3200, showConfirmButton: false });
+}
+
+function onThreePointRectangleMove(event) {
+    if (!isThreePointRectangleMode || threePointRectanglePoints.length < 2) return;
+    renderThreePointRectanglePreview(event.latlng);
+}
+
+function onThreePointRectangleClick(event) {
+    if (!isThreePointRectangleMode) return;
+    L.DomEvent.stopPropagation(event);
+    if (threePointRectanglePoints.length < 2) {
+        threePointRectanglePoints.push(event.latlng);
+        renderThreePointRectanglePreview();
+        return;
+    }
+    const corners = getThreePointRectangleCorners(threePointRectanglePoints[0], threePointRectanglePoints[1], event.latlng);
+    if (!corners) return;
+    const layer = L.polygon(corners, { color: '#7c3aed', fillColor: '#a78bfa', fillOpacity: .22, weight: 3 });
+    stopThreePointRectangleMode();
+    layer.addTo(map);
+    map.fire('pm:create', { shape: 'Rectangle', layer });
+}
+
 function initRulerGroup() {
     if (!rulerMarkersGroup && map) {
         rulerMarkersGroup = L.layerGroup().addTo(map);
@@ -3568,6 +3660,38 @@ function injectRulerButtonToGeoman() {
     }
 }
 
+function injectThreePointRectangleButton() {
+    if (document.getElementById('btn-three-point-rectangle')) return;
+    const drawToolbar = Array.from(document.querySelectorAll('.leaflet-pm-toolbar')).find(toolbar =>
+        toolbar.dataset.groupLabel === 'สร้าง' || toolbar.className.includes('leaflet-pm-draw')
+    );
+    if (!drawToolbar) return;
+    const nativeRectangle = Array.from(drawToolbar.querySelectorAll('.leaflet-buttons-control-button')).find(button => {
+        const title = (button.getAttribute('title') || '').toLowerCase();
+        return title.includes('rectangle') || title.includes('สี่เหลี่ยม') || button.className.toLowerCase().includes('rectangle') || Boolean(button.querySelector('.leaflet-pm-icon-rectangle'));
+    });
+    const container = document.createElement('div');
+    container.className = 'button-container pos-right';
+    container.setAttribute('title', 'วาดสี่เหลี่ยม 3 จุด');
+    const button = document.createElement('a');
+    button.id = 'btn-three-point-rectangle';
+    button.className = 'leaflet-buttons-control-button';
+    button.href = '#';
+    button.setAttribute('role', 'button');
+    button.setAttribute('title', 'วาดสี่เหลี่ยม 3 จุด');
+    button.setAttribute('aria-label', 'วาดสี่เหลี่ยม 3 จุด: เริ่ม แนวยาว ความกว้าง');
+    button.innerHTML = '<div class="control-icon"><i class="fa-regular fa-rectangle-wide" style="font-size:19px;color:#374151;"></i></div>';
+    button.onclick = event => { event.preventDefault(); event.stopPropagation(); startThreePointRectangleMode(); };
+    container.appendChild(button);
+    const nativeContainer = nativeRectangle?.closest('.button-container');
+    if (nativeContainer?.parentNode) {
+        nativeContainer.parentNode.insertBefore(container, nativeContainer);
+        nativeContainer.style.display = 'none';
+    } else {
+        drawToolbar.appendChild(container);
+    }
+}
+
 function decorateGeomanToolbars() {
     document.querySelectorAll('.leaflet-pm-toolbar').forEach((toolbar, index) => {
         const className = toolbar.className || '';
@@ -3593,6 +3717,7 @@ function decorateGeomanToolbars() {
         });
     });
     injectRulerButtonToGeoman();
+    injectThreePointRectangleButton();
 }
 
 function renderGeomanToggleButton(btn, isOpen) {
