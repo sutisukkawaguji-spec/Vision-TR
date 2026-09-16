@@ -2147,7 +2147,7 @@ function markLayerAsBaseMap(layer) {
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
 }
 
-function markLayerAsSurveyDrawing(layer) {
+function markLayerAsSurveyDrawing(layer, jobId = null) {
     const mark = target => {
         target.options.pmIgnore = false;
         target.options.interactive = true;
@@ -2157,6 +2157,10 @@ function markLayerAsSurveyDrawing(layer) {
     };
     mark(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
+    // A standalone drawing is a Base Plot of its own.  It needs the Geoman
+    // change handlers as well, otherwise Edit Layer only changes the temporary
+    // map layer and the next render restores the old geometry from Supabase.
+    if (jobId) bindGeomanEvents(layer, jobId);
 }
 
 // A Leaflet CircleMarker lives in the vector pane.  During zoom animation that
@@ -4011,7 +4015,7 @@ function renderMap(fitBounds = false) {
             }
             // Base Map remains read-only; standalone drawings stay editable/removable.
             if (job.properties?.is_custom_draw === true) {
-                markLayerAsSurveyDrawing(layer);
+                markLayerAsSurveyDrawing(layer, job.id);
             } else {
                 markLayerAsBaseMap(layer);
             }
@@ -7902,6 +7906,34 @@ saveJobToSupabase = async function (job) {
     }
 
     const props = job.properties || {};
+    // Custom drawings own their Base Plot geometry. Survey records keep form
+    // values, but do not contain the polygon itself. Persist the edited shape
+    // before the record update so a reload cannot restore the old outline.
+    if (plot.source_properties?.is_custom_draw === true || props.is_custom_draw === true) {
+        const sourceProperties = {
+            ...(plot.source_properties || {}),
+            ...props,
+            is_custom_draw: true,
+            work_group_id: group.id
+        };
+        const { data: updatedPlot, error: plotUpdateError } = await supabaseClient
+            .from('base_plots')
+            .update({
+                display_name: props.name || plot.display_name,
+                lat: Number(job.lat),
+                lng: Number(job.lng),
+                geometry: job.geometry,
+                source_properties: sourceProperties,
+                search_text: v2SearchText(sourceProperties)
+            })
+            .eq('id', plot.id)
+            .select()
+            .single();
+        if (plotUpdateError) throw plotUpdateError;
+        plot = updatedPlot;
+        const plotIndex = v2BasePlots.findIndex(item => item.id === plot.id);
+        if (plotIndex >= 0) v2BasePlots[plotIndex] = plot;
+    }
     const existingRecord = v2PlotRecords.find(item => item.base_plot_id === plot.id && item.work_group_id === group.id);
     const existingRecordProperties = existingRecord?.record_properties || {};
     const recordedAt = job.status === 'done' ? (props.date ? `${props.date}T00:00:00Z` : new Date().toISOString()) : null;
