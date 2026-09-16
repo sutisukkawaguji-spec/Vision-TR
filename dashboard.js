@@ -3,6 +3,7 @@ const dashboardConfig = window.SURVEY_CONFIG || {};
 const dashboardDb = window.supabase?.createClient(dashboardConfig.supabaseUrl, dashboardConfig.supabasePublishableKey);
 const dashboardState = { groupId: new URLSearchParams(location.search).get('workGroup') || '', year: 'all', graph: 'bar', fieldKey: '', search: '', filterField: '', filterValue: '' };
 let dashboardUser, dashboardGroups = [], dashboardForm, dashboardRecords = [], dashboardPlots = [], dashboardPeople = [];
+const dashboardExpandedRecords = new Set(), dashboardExpandedImages = new Map();
 const colors = ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#f97316','#64748b'];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[char]));
 const opts = field => (field?.options || []).map((item, index) => typeof item === 'object' ? { id:String(item.id), label:String(item.label ?? ''), active:item.active !== false } : { id:`legacy_${index}_${String(item).replace(/\W+/g,'_')}`, label:String(item), active:true });
@@ -113,33 +114,49 @@ function featureDisplayValues(feature) {
     return { label: field.label, value: display };
   }).filter(item => item.value);
 }
-function renderSurveyList() {
-  const all = dashboardRecords.flatMap(record => (record.record_properties?.survey_features || []).map(feature => ({ ...feature, record })));
+function entryMatches(entry) {
   const term = dashboardState.search.trim().toLocaleLowerCase('th');
   const fieldTerm = dashboardState.filterValue.trim().toLocaleLowerCase('th');
-  const filtered = all.filter(feature => {
-    const values = featureDisplayValues(feature);
-    const haystack = `${feature.record?.record_properties?.name || ''} ${feature.name || ''} ${feature.note || ''} ${values.map(item => `${item.label} ${item.value}`).join(' ')}`.toLocaleLowerCase('th');
-    const selectedField = (dashboardForm?.fields || []).find(field => field.key === dashboardState.filterField);
-    const rawSelected = feature.form_data?.[dashboardState.filterField];
-    const selected = selectedField ? (Array.isArray(rawSelected) ? rawSelected.map(value => optionLabel(selectedField, value)).join(', ') : optionLabel(selectedField, rawSelected)) : haystack;
-    return (!term || haystack.includes(term)) && (!fieldTerm || String(selected).toLocaleLowerCase('th').includes(fieldTerm));
-  });
-  document.getElementById('survey-list-count').textContent = `${filtered.length} รายการ`;
-  document.getElementById('survey-list').innerHTML = filtered.length ? filtered.slice(0, 300).map((feature, index) => {
-    const values = featureDisplayValues(feature).slice(0, 3);
-    const parentName = feature.record.record_properties?.name || feature.record.base_plot_id || 'แปลงสำรวจ';
-    return `<button type="button" onclick="openSurveyDetail(${index})" class="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 transition" data-survey-index="${index}"><div class="flex justify-between gap-3"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(parentName)} · ${esc(feature.name || 'รูปวาดสำรวจ')}</p><p class="text-[11px] text-slate-500 truncate">${esc(feature.note || 'ไม่มีหมายเหตุ')}</p><p class="text-[10px] text-emerald-700 mt-1">${values.map(item => `${esc(item.label)}: ${esc(item.value)}`).join(' · ') || 'ยังไม่มีค่าฟอร์ม'}</p></div><span class="text-[10px] text-slate-400 whitespace-nowrap">${fmtDate(feature.recorded_at || feature.updated_at)}</span></div></button>`;
+  const values = featureDisplayValues(entry);
+  const haystack = `${entry.parentName || ''} ${entry.name || ''} ${entry.note || ''} ${values.map(item => `${item.label} ${item.value}`).join(' ')}`.toLocaleLowerCase('th');
+  const selectedField = (dashboardForm?.fields || []).find(field => field.key === dashboardState.filterField);
+  const rawSelected = entry.form_data?.[dashboardState.filterField];
+  const selected = selectedField ? (Array.isArray(rawSelected) ? rawSelected.map(value => optionLabel(selectedField, value)).join(', ') : optionLabel(selectedField, rawSelected)) : haystack;
+  return (!term || haystack.includes(term)) && (!fieldTerm || String(selected).toLocaleLowerCase('th').includes(fieldTerm));
+}
+function entryPhotos(entry) { return (entry.images || []).map(image => typeof image === 'string' ? image : image?.url).filter(Boolean); }
+function renderEntryBody(entry, imageKey) {
+  const values = featureDisplayValues(entry).slice(0, 4);
+  const photos = entryPhotos(entry);
+  const imageUrl = photos.map((url, index) => dashboardExpandedImages.get(`${imageKey}_${index}`)).find(Boolean);
+  return `<div class="mt-2 text-[11px] text-slate-600">${values.length ? values.map(item => `<span class="inline-block mr-2 mb-1 rounded-md bg-slate-100 px-2 py-1">${esc(item.label)}: <b>${esc(item.value)}</b></span>`).join('') : '<span class="text-slate-400">ยังไม่มีค่าฟอร์ม</span>'}${entry.note ? `<p class="mt-1 text-slate-500">${esc(entry.note)}</p>` : ''}<div class="flex flex-wrap gap-2 mt-2">${photos.map((url, index) => `<button type="button" onclick='toggleSurveyImage(${JSON.stringify(`${imageKey}_${index}`)},${JSON.stringify(url)})' class="rounded-lg overflow-hidden border border-slate-200"><img src="${esc(url)}" class="w-14 h-14 object-cover" alt="รูปสำรวจ"></button>`).join('')}</div>${imageUrl ? `<img src="${esc(imageUrl)}" class="mt-3 max-h-80 max-w-full rounded-xl border border-slate-200 object-contain bg-slate-50" alt="รูปสำรวจขนาดใหญ่">` : ''}</div>`;
+}
+function renderSurveyList() {
+  const groups = dashboardRecords.map(record => {
+    const props = record.record_properties || {};
+    const main = { record, parentName: props.name || record.base_plot_id || 'แปลงหลัก', name: props.name || 'ข้อมูลแปลงหลัก', note: record.note || props.note || '', form_data: props.form_data || {}, images: record.images || props.images || [], recorded_at: record.recorded_at, updated_at: record.updated_at, isMain: true };
+    const children = (props.survey_features || []).map(feature => ({ ...feature, record, parentName: main.parentName, isMain: false }));
+    const matchingChildren = children.filter(entryMatches);
+    const matchesMain = entryMatches(main);
+    if (!children.length) return matchesMain ? { record, main, children: [], visibleChildren: [] } : null;
+    return (matchesMain || matchingChildren.length) ? { record, main, children, visibleChildren: matchingChildren } : null;
+  }).filter(Boolean).slice(0, 300);
+  document.getElementById('survey-list-count').textContent = `${groups.length} แปลง`;
+  document.getElementById('survey-list').innerHTML = groups.length ? groups.map(group => {
+    const id = group.record.id;
+    const hasChildren = group.children.length > 0;
+    const filtering = Boolean(dashboardState.search || dashboardState.filterField || dashboardState.filterValue);
+    const expanded = dashboardExpandedRecords.has(id) || (filtering && group.visibleChildren.length > 0);
+    const shownChildren = filtering ? group.visibleChildren : group.children;
+    const childSummary = hasChildren ? `${group.children.length} รายการย่อย${shownChildren.length !== group.children.length ? ` · ตรงเงื่อนไข ${shownChildren.length}` : ''}` : 'ข้อมูลแปลงหลัก';
+    const mainBody = !hasChildren ? renderEntryBody(group.main, `main_${id}`) : '';
+    const childHtml = expanded ? `<div class="mt-2 ml-3 pl-3 border-l-2 border-emerald-200 space-y-2">${shownChildren.length ? shownChildren.map((child, index) => `<article class="rounded-xl bg-emerald-50/50 border border-emerald-100 p-3"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(child.name || `รายการย่อย ${index + 1}`)}</p><p class="text-[10px] text-slate-400">${fmtDate(child.recorded_at || child.updated_at)}</p></div><span class="text-xs text-emerald-700">${entryPhotos(child).length} <i class="fa-solid fa-image"></i></span></div>${renderEntryBody(child, `child_${id}_${child.id || index}`)}</article>`).join('') : '<p class="p-3 text-xs text-slate-400">ไม่มีรายการย่อยที่ตรงกับตัวกรอง</p>'}</div>` : '';
+    return `<article class="rounded-xl border border-slate-200 bg-white p-3"><div class="flex items-start gap-2"><button type="button" onclick="toggleSurveyRecord('${esc(id)}')" class="mt-0.5 w-8 h-8 rounded-lg ${hasChildren ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}" ${hasChildren ? '' : 'disabled'}>${hasChildren ? `<i class="fa-solid fa-${expanded ? 'minus' : 'plus'}"></i>` : '<i class="fa-solid fa-file-lines"></i>'}</button><div class="min-w-0 flex-1"><p class="text-sm font-bold text-slate-800 truncate">${esc(group.main.parentName)}</p><p class="text-[11px] text-slate-500">${childSummary}</p>${mainBody}</div></div>${childHtml}</article>`;
   }).join('') : '<p class="text-center py-10 text-sm text-slate-400">ไม่พบรายการที่ตรงกับเงื่อนไข</p>';
-  window.dashboardVisibleFeatures = filtered.slice(0, 300);
 }
-function openSurveyDetail(index) {
-  const feature = window.dashboardVisibleFeatures?.[index]; if (!feature) return;
-  const values = featureDisplayValues(feature);
-  const photos = (feature.images || []).map(image => typeof image === 'string' ? image : image.url).filter(Boolean);
-  const parent = feature.record.record_properties?.name || feature.record.base_plot_id || 'แปลงสำรวจ';
-  const detail = `<div class="text-left space-y-3"><div><p class="text-xs text-slate-500">แปลงหลัก</p><p class="font-bold">${esc(parent)}</p></div><div><p class="text-xs text-slate-500">รายการ</p><p class="font-bold">${esc(feature.name || 'รูปวาดสำรวจ')}</p></div><div class="space-y-1">${values.map(item => `<div class="flex justify-between gap-4 text-sm border-b border-slate-100 py-1"><span>${esc(item.label)}</span><b class="text-right">${esc(item.value)}</b></div>`).join('')}</div>${feature.note ? `<p class="text-sm rounded-xl bg-slate-50 p-3">${esc(feature.note)}</p>` : ''}<div class="flex flex-wrap gap-2">${photos.map(url => `<a href="${esc(url)}" target="_blank"><img src="${esc(url)}" class="w-16 h-16 object-cover rounded-lg border"></a>`).join('')}</div></div>`;
-  if (window.Swal) Swal.fire({ title: 'รายละเอียดการสำรวจ', html: detail, width: 600, confirmButtonText: 'ปิด' }); else alert(`${parent}\n${feature.name || ''}`);
-}
+function toggleSurveyRecord(id) { if (dashboardExpandedRecords.has(id)) dashboardExpandedRecords.delete(id); else dashboardExpandedRecords.add(id); renderSurveyList(); }
+function toggleSurveyImage(key, url) { if (dashboardExpandedImages.get(key) === url) dashboardExpandedImages.delete(key); else dashboardExpandedImages.set(key, url); renderSurveyList(); }
+window.toggleSurveyRecord = toggleSurveyRecord;
+window.toggleSurveyImage = toggleSurveyImage;
 function showError(message) { document.getElementById('dashboard-loading').innerHTML=`<i class="fa-solid fa-triangle-exclamation mr-2 text-amber-500"></i>${esc(message)}`; }
 startDashboard().catch(error => showError(error.message));
