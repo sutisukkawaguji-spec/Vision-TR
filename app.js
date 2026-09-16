@@ -658,9 +658,6 @@ let justDeletedJobId = null;
 let isThreePointRectangleMode = false;
 let threePointRectanglePoints = [];
 let threePointRectanglePreviewGroup = null;
-let editLayerHistory = [];
-let editLayerHistoryIndex = -1;
-const editLayerStartingSnapshots = new WeakMap();
 window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
@@ -1021,22 +1018,9 @@ function initApp() {
             }
         });
 
-        // Show the shared undo/redo panel for every geometry tool, not only Edit Layer.
-        const refreshMapToolHistory = () => {
-            showPendingActionsBar();
-            window.setTimeout(() => {
-                if (isGeometryToolHistoryActive()) {
-                    resetLayerEditHistory();
-                    beginAllEditableLayerHistory();
-                }
-                syncEditHistoryControls();
-            }, 0);
-        };
-        map.on('pm:globaleditmodetoggled', refreshMapToolHistory);
-        map.on('pm:globaldragmodetoggled', refreshMapToolHistory);
-        map.on('pm:globalrotatemodetoggled', refreshMapToolHistory);
-        map.on('pm:globaldrawmodetoggled', refreshMapToolHistory);
-        map.on('pm:globalremovalmodetoggled', refreshMapToolHistory);
+        map.on('pm:globaleditmodetoggled', () => showPendingActionsBar());
+        map.on('pm:globaldragmodetoggled', () => showPendingActionsBar());
+        map.on('pm:globalrotatemodetoggled', () => showPendingActionsBar());
 
         // ดักจับเมื่อมีการลบเลเยอร์ด้วยเครื่องมือลบของ Geoman
         map.on('pm:remove', async (e) => {
@@ -2226,13 +2210,9 @@ function createSurveyFeatureLayer(job, feature) {
         // Re-open the same measurement overlay when a saved child drawing
         // enters Edit Layer.  It refreshes while vertices are moved, before
         // the geometry is persisted on pm:edit.
-        target.on('pm:enable', () => {
-            beginLayerEditHistory(target);
-            showEditablePolygonMeasurements(target);
-        });
+        target.on('pm:enable', () => showEditablePolygonMeasurements(target));
         target.on('pm:change pm:vertexadded pm:vertexremoved', () => showEditablePolygonMeasurements(target));
         target.on('pm:edit pm:dragend pm:rotateend', () => {
-            recordLayerEditHistory(target, { parentJobId: job.id, featureId: feature.id });
             updateSurveyFeatureFromLayer(job.id, feature.id, target);
         });
         target.on('click', event => {
@@ -3097,13 +3077,9 @@ function bindGeomanEvents(layer, jobId) {
         };
         // Show dimensions as soon as this saved polygon is selected for
         // editing, then redraw them continuously as its vertices change.
-        l.on('pm:enable', () => {
-            beginLayerEditHistory(l);
-            showEditedShapeMeasurements(l, jobId);
-        });
+        l.on('pm:enable', () => showEditedShapeMeasurements(l, jobId));
         l.on('pm:change pm:vertexadded pm:vertexremoved', () => showEditedShapeMeasurements(l, jobId));
         l.on('pm:edit pm:dragend pm:rotateend', () => {
-            recordLayerEditHistory(l, { jobId });
             keepGeometry();
         });
         l.on('pm:revert', () => {
@@ -3136,115 +3112,6 @@ function showEditablePolygonMeasurements(layer) {
     if (points.length < 3) return;
     pinCompletedDrawingMeasurements(layer, layer instanceof L.Rectangle ? 'Rectangle' : 'Polygon');
 }
-
-function cloneLayerLatLngs(value) {
-    if (Array.isArray(value)) return value.map(cloneLayerLatLngs);
-    return value ? { lat: Number(value.lat), lng: Number(value.lng) } : value;
-}
-
-function captureLayerEditSnapshot(layer) {
-    if (!layer) return null;
-    if (typeof layer.getRadius === 'function') {
-        const point = layer.getLatLng();
-        return { type: 'circle', latlng: cloneLayerLatLngs(point), radius: Number(layer.getRadius()) };
-    }
-    if (layer instanceof L.Marker || (typeof layer.getLatLng === 'function' && typeof layer.getLatLngs !== 'function')) {
-        return { type: 'marker', latlng: cloneLayerLatLngs(layer.getLatLng()) };
-    }
-    if (typeof layer.getLatLngs === 'function') return { type: 'path', latlngs: cloneLayerLatLngs(layer.getLatLngs()) };
-    return null;
-}
-
-function beginLayerEditHistory(layer) {
-    const snapshot = captureLayerEditSnapshot(layer);
-    if (snapshot) editLayerStartingSnapshots.set(layer, snapshot);
-}
-
-// Global Geoman modes can enable a GeoJSON child without emitting pm:enable
-// on every wrapper layer. Capture all editable leaves when the tool starts so
-// Undo always has a genuine pre-edit shape to restore.
-function beginAllEditableLayerHistory() {
-    const visit = layer => {
-        if (!layer) return;
-        if (typeof layer.eachLayer === 'function') layer.eachLayer(visit);
-        if (layer.options?.pmIgnore === true) return;
-        if (layer.pm || typeof layer.getLatLngs === 'function' || typeof layer.getLatLng === 'function') beginLayerEditHistory(layer);
-    };
-    markersGroup?.eachLayer?.(visit);
-}
-
-function recordLayerEditHistory(layer, target) {
-    const before = editLayerStartingSnapshots.get(layer);
-    const after = captureLayerEditSnapshot(layer);
-    if (!before || !after || JSON.stringify(before) === JSON.stringify(after)) return;
-    editLayerHistory.splice(editLayerHistoryIndex + 1);
-    editLayerHistory.push({ layer, before, after, ...target });
-    editLayerHistoryIndex = editLayerHistory.length - 1;
-    editLayerStartingSnapshots.set(layer, after);
-    syncEditHistoryControls();
-}
-
-function applyLayerEditSnapshot(layer, snapshot) {
-    if (!layer || !snapshot) return;
-    if (snapshot.type === 'circle') {
-        layer.setLatLng(snapshot.latlng);
-        layer.setRadius(snapshot.radius);
-    } else if (snapshot.type === 'marker') {
-        layer.setLatLng(snapshot.latlng);
-    } else if (snapshot.type === 'path') {
-        layer.setLatLngs(cloneLayerLatLngs(snapshot.latlngs));
-    }
-}
-
-function syncEditHistoryControls() {
-    const panel = document.getElementById('edit-history-controls');
-    const undoButton = document.getElementById('btn-edit-undo');
-    const redoButton = document.getElementById('btn-edit-redo');
-    panel?.classList.toggle('hidden', !isGeometryToolHistoryActive());
-    if (undoButton) undoButton.disabled = editLayerHistoryIndex < 0;
-    if (redoButton) redoButton.disabled = editLayerHistoryIndex >= editLayerHistory.length - 1;
-}
-
-function isGeometryToolHistoryActive() {
-    return Boolean(isThreePointRectangleMode || (
-        map?.pm && (
-            map.pm.globalDrawModeEnabled?.() ||
-            map.pm.globalEditModeEnabled?.() ||
-            map.pm.globalDragModeEnabled?.() ||
-            map.pm.globalRotateModeEnabled?.() ||
-            map.pm.globalRemovalModeEnabled?.()
-        )
-    ));
-}
-
-function resetLayerEditHistory() {
-    editLayerHistory = [];
-    editLayerHistoryIndex = -1;
-}
-
-async function applyEditHistory(direction) {
-    const nextIndex = direction === 'undo' ? editLayerHistoryIndex : editLayerHistoryIndex + 1;
-    const item = editLayerHistory[nextIndex];
-    if (!item) return;
-    applyLayerEditSnapshot(item.layer, direction === 'undo' ? item.before : item.after);
-    editLayerStartingSnapshots.set(item.layer, direction === 'undo' ? item.before : item.after);
-    editLayerHistoryIndex = direction === 'undo' ? nextIndex - 1 : nextIndex;
-    if (item.jobId) {
-        queueGeomanUpdate(item.layer, item.jobId);
-        showEditedShapeMeasurements(item.layer, item.jobId);
-        scheduleCustomDrawingGeometrySave(item.jobId);
-        showPendingActionsBar();
-    } else if (item.parentJobId && item.featureId) {
-        showEditablePolygonMeasurements(item.layer);
-        await updateSurveyFeatureFromLayer(item.parentJobId, item.featureId, item.layer);
-    }
-    syncEditHistoryControls();
-}
-
-function undoEditLayer() { return applyEditHistory('undo'); }
-function redoEditLayer() { return applyEditHistory('redo'); }
-window.undoEditLayer = undoEditLayer;
-window.redoEditLayer = redoEditLayer;
 
 // --- คิวจัดการเก็บพิกัดที่มีการขยับ/แก้ไขชั่วคราว ---
 function queueGeomanUpdate(l, jobId) {
@@ -3486,7 +3353,6 @@ function stopThreePointRectangleMode() {
     map.off('mousemove', onThreePointRectangleMove);
     document.getElementById('btn-three-point-rectangle')?.classList.remove('active');
     document.getElementById('btn-three-point-rectangle')?.removeAttribute('aria-pressed');
-    syncEditHistoryControls();
 }
 
 // Geoman permits several global modes to be enabled at once.  That is useful
@@ -3534,7 +3400,6 @@ function startThreePointRectangleMode() {
     stopRulerTool();
     disableNativeMapToolModes();
     clearDrawingMeasurements();
-    resetLayerEditHistory();
     isThreePointRectangleMode = true;
     threePointRectanglePoints = [];
     initThreePointRectanglePreview();
@@ -3543,7 +3408,6 @@ function startThreePointRectangleMode() {
     const button = document.getElementById('btn-three-point-rectangle');
     button?.classList.add('active');
     button?.setAttribute('aria-pressed', 'true');
-    syncEditHistoryControls();
 }
 
 function onThreePointRectangleMove(event) {

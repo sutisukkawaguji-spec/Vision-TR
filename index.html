@@ -1503,17 +1503,6 @@
                 <div id="search-results"></div>
             </div>
         </div>
-        <div id="edit-history-controls" class="hidden px-1 pt-2">
-            <div class="flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white/95 p-1.5 shadow-sm">
-                <span class="mr-1 text-[10px] font-bold text-violet-700"><i class="fa-solid fa-pen-ruler mr-1"></i>เครื่องมือแผนที่</span>
-                <button id="btn-edit-undo" type="button" onclick="undoEditLayer()" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40" title="ย้อนกลับการแก้ไขล่าสุด">
-                    <i class="fa-solid fa-arrow-rotate-left mr-1"></i>ย้อนกลับ
-                </button>
-                <button id="btn-edit-redo" type="button" onclick="redoEditLayer()" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40" title="ทำซ้ำการแก้ไขที่ย้อนกลับ">
-                    <i class="fa-solid fa-arrow-rotate-right mr-1"></i>ทำซ้ำ
-                </button>
-            </div>
-        </div>
     </div>
 
     <input type="file" id="fileInput" accept=".json,.geojson,.txt,*/*" class="hidden" onchange="importData(this)">
@@ -2370,7 +2359,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.23" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.24" charset="UTF-8"></script>
 </body>
 
 </html>
