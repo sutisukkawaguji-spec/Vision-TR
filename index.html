@@ -1785,8 +1785,8 @@
                 <!-- Tab Profile -->
                 <div id="scontent-profile" class="tab-content space-y-4">
                     <div class="p-4 border border-blue-100 rounded-2xl bg-blue-50/20">
-                        <div class="flex justify-between items-start gap-3">
-                            <div class="min-w-0 flex-1" style="min-width: 130px;">
+                        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                            <div class="min-w-0 w-full sm:flex-1">
                                 <div class="text-[10px] font-bold text-gray-400">ผู้ใช้งานปัจจุบัน</div>
                                 <div class="text-base font-bold text-gray-850 animate-fade-in break-words"
                                     style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;"
@@ -1803,7 +1803,7 @@
                                 </div>
                             </div>
                             <button onclick="resetGps()"
-                                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm transition active:scale-95 flex items-center gap-1">
+                                class="self-end sm:self-auto shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-sm transition active:scale-95 flex items-center gap-1">
                                 <i class="fa-solid fa-location-crosshairs"></i> Reset GPS
                             </button>
                         </div>
