@@ -4102,10 +4102,13 @@ function renderDynamicSurveyForm(job) {
         const mappedValue = hasSavedValue ? undefined : getMappedBaseMapValue(job, field);
         const value = hasSavedValue ? values[field.key] : (mappedValue ?? '');
         const common = `data-form-key="${v2EscapeHtml(field.key)}" data-form-label="${v2EscapeHtml(field.label)}" class="dynamic-form-input w-full p-3 border border-gray-300 rounded-xl bg-white outline-none focus:border-violet-500"`;
-        const fieldOptions = [...(field.options || [])].map(String);
+        const fieldOptions = normalizeSurveyFieldOptions(field.options);
         const mappedOptions = Array.isArray(value) ? value.map(String) : [String(value ?? '')];
-        mappedOptions.filter(Boolean).forEach(option => { if (!fieldOptions.includes(option)) fieldOptions.push(option); });
-        const options = fieldOptions.map(option => `<option value="${v2EscapeHtml(option)}" ${String(value) === String(option) ? 'selected' : ''}>${v2EscapeHtml(option)}</option>`).join('');
+        mappedOptions.filter(Boolean).forEach(option => {
+            if (!fieldOptions.some(item => item.id === option)) fieldOptions.push({ id: option, label: surveyOptionLabel(field, option), active: false });
+        });
+        const visibleOptions = fieldOptions.filter(option => option.active || mappedOptions.includes(option.id));
+        const options = visibleOptions.map(option => `<option value="${v2EscapeHtml(option.id)}" ${String(value) === String(option.id) ? 'selected' : ''}>${v2EscapeHtml(option.label)}${option.active ? '' : ' (ค่าเดิม)'}</option>`).join('');
         let input;
         if (fieldType === 'textarea') {
             input = `<textarea ${common} rows="3" placeholder="${v2EscapeHtml(field.placeholder || '')}">${v2EscapeHtml(value || '')}</textarea>`;
@@ -4113,7 +4116,7 @@ function renderDynamicSurveyForm(job) {
             input = `<select ${common}><option value="">-- เลือก --</option>${options}</select>`;
         } else if (fieldType === 'multiselect') {
             const selected = Array.isArray(value) ? value.map(String) : [];
-            input = `<select ${common} multiple size="${Math.min(5, Math.max(3, fieldOptions.length))}">${fieldOptions.map(option => `<option value="${v2EscapeHtml(option)}" ${selected.includes(String(option)) ? 'selected' : ''}>${v2EscapeHtml(option)}</option>`).join('')}</select>`;
+            input = `<select ${common} multiple size="${Math.min(5, Math.max(3, visibleOptions.length))}">${visibleOptions.map(option => `<option value="${v2EscapeHtml(option.id)}" ${selected.includes(String(option.id)) ? 'selected' : ''}>${v2EscapeHtml(option.label)}${option.active ? '' : ' (ค่าเดิม)'}</option>`).join('')}</select>`;
         } else if (fieldType === 'checkbox') {
             input = `<label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-white"><input type="checkbox" ${common} style="width:22px;height:22px" ${value === true ? 'checked' : ''}><span class="text-sm text-gray-700">ใช่</span></label>`;
         } else if (job.properties?.is_custom_draw === true) {
@@ -5416,6 +5419,101 @@ function getValueByFieldPath(source, path) {
     return path.split('.').reduce((value, key) => (value !== null && value !== undefined ? value[key] : undefined), source);
 }
 
+// Dropdown values use a stable id, rather than the label users see.  This is
+// what lets an administrator rename an option without changing the meaning of
+// thousands of previously saved survey records.
+function normalizeSurveyFieldOptions(options = []) {
+    return (Array.isArray(options) ? options : []).map((option, index) => {
+        if (option && typeof option === 'object') {
+            return {
+                id: String(option.id || `option_${index}_${String(option.label || '').replace(/\W+/g, '_')}`),
+                label: String(option.label ?? option.value ?? ''),
+                active: option.active !== false
+            };
+        }
+        const label = String(option ?? '').trim();
+        return { id: `legacy_${index}_${label.replace(/\W+/g, '_')}`, label, active: true };
+    }).filter(option => option.label);
+}
+
+function surveyOptionLabel(field, value) {
+    const option = normalizeSurveyFieldOptions(field?.options).find(item => item.id === String(value));
+    return option ? option.label : String(value ?? '');
+}
+
+function buildSurveyOptionsFromText(text, previousOptions = []) {
+    const oldOptions = normalizeSurveyFieldOptions(previousOptions);
+    const labels = String(text || '').split(/\r?\n|,|\|/).map(value => value.trim()).filter(Boolean);
+    const used = new Set();
+    const active = labels.map((label, index) => {
+        // Same line preserves an id on rename; matching label preserves an id
+        // when a user reorders the list.
+        let old = oldOptions.find(item => !used.has(item.id) && item.label === label);
+        if (!old) old = oldOptions[index] && !used.has(oldOptions[index].id) ? oldOptions[index] : null;
+        const id = old?.id || `option_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+        used.add(id);
+        return { id, label, active: true };
+    });
+    // Removed options stay archived: historic results remain intelligible but
+    // cannot be selected in a newly created survey.
+    return [...active, ...oldOptions.filter(item => !used.has(item.id)).map(item => ({ ...item, active: false }))];
+}
+
+function migrateSurveyFormValues(values, oldFields, newFields) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) return { values, changed: false };
+    const output = { ...values };
+    let changed = false;
+    (newFields || []).forEach(nextField => {
+        const oldField = (oldFields || []).find(field => field.id === nextField.id) || (oldFields || []).find(field => field.key === nextField.key);
+        if (!oldField) return;
+        const oldKey = oldField.key;
+        const newKey = nextField.key;
+        if (!Object.prototype.hasOwnProperty.call(output, oldKey)) return;
+        let value = output[oldKey];
+        const oldOptions = normalizeSurveyFieldOptions(oldField.options);
+        const nextOptions = normalizeSurveyFieldOptions(nextField.options);
+        const mapOne = item => {
+            const text = String(item ?? '');
+            if (nextOptions.some(option => option.id === text)) return item;
+            const oldOption = oldOptions.find(option => option.id === text || option.label === text);
+            const matched = oldOption && nextOptions.find(option => option.id === oldOption.id);
+            return matched ? matched.id : item;
+        };
+        if (['select', 'multiselect'].includes(normalizeSurveyFieldType(nextField.type))) {
+            const mapped = Array.isArray(value) ? value.map(mapOne) : mapOne(value);
+            if (JSON.stringify(mapped) !== JSON.stringify(value)) { value = mapped; changed = true; }
+        }
+        if (oldKey !== newKey) { delete output[oldKey]; changed = true; }
+        if (JSON.stringify(output[newKey]) !== JSON.stringify(value)) { output[newKey] = value; changed = true; }
+    });
+    return { values: output, changed };
+}
+
+async function migrateSavedSurveyFormValues(oldFields, newFields) {
+    const records = v2PlotRecords.filter(record => record.work_group_id === v2ActiveWorkGroup?.id);
+    let changedCount = 0;
+    for (const record of records) {
+        const props = JSON.parse(JSON.stringify(record.record_properties || {}));
+        const parent = migrateSurveyFormValues(props.form_data || {}, oldFields, newFields);
+        let changed = parent.changed || JSON.stringify(props.form_schema || []) !== JSON.stringify(newFields);
+        props.form_data = parent.values;
+        props.form_schema = newFields;
+        if (Array.isArray(props.survey_features)) {
+            props.survey_features = props.survey_features.map(feature => {
+                const migrated = migrateSurveyFormValues(feature.form_data || {}, oldFields, newFields);
+                if (migrated.changed || JSON.stringify(feature.form_schema || []) !== JSON.stringify(newFields)) changed = true;
+                return { ...feature, form_data: migrated.values, form_schema: newFields };
+            });
+        }
+        if (!changed) continue;
+        const { error } = await supabaseClient.from('plot_records').update({ record_properties: props, updated_at: new Date().toISOString() }).eq('id', record.id);
+        if (error) throw error;
+        record.record_properties = props;
+        changedCount++;
+    }
+    return changedCount;
+}
+
 function getMappedBaseMapValue(job, field) {
     if (!field?.source_key) return undefined;
     const plotId = job.properties?.base_plot_id || job.id;
@@ -5493,7 +5591,7 @@ function renderSurveyFormFieldsList() {
             <span class="text-gray-300 cursor-grab"><i class="fa-solid fa-grip-vertical"></i></span>
             <div class="flex-1 min-w-0">
                 <div class="text-xs font-bold text-gray-800 truncate">${v2EscapeHtml(field.label)} ${field.required ? '<span class="text-red-500">*</span>' : ''}</div>
-                <div class="text-[9px] text-gray-500 truncate">${v2EscapeHtml(field.key)} · ${v2EscapeHtml(SURVEY_FIELD_TYPES[normalizeSurveyFieldType(field.type)] || field.type)}</div>
+                <div class="text-[9px] text-gray-500 truncate">${v2EscapeHtml(field.key)} · ${v2EscapeHtml(SURVEY_FIELD_TYPES[normalizeSurveyFieldType(field.type)] || field.type)}${['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)) ? ` · ${normalizeSurveyFieldOptions(field.options).filter(option => option.active).length} ตัวเลือก` : ''}</div>
                 ${field.source_key ? `<div class="text-[9px] text-violet-600 truncate"><i class="fa-solid fa-link mr-0.5"></i> ดึงจาก Base Map: ${v2EscapeHtml(field.source_key)}</div>` : ''}
             </div>
             <button onclick="moveSurveyFormField(${index},-1)" class="w-8 h-8 rounded-lg bg-gray-50 text-gray-500" title="ขึ้น"><i class="fa-solid fa-chevron-up"></i></button>
@@ -5538,7 +5636,8 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
                 <p class="text-[10px] text-violet-600 mt-1">เมื่อสำรวจหรือวาดในแปลง ระบบจะเติมค่าจากคอลัมน์นี้ให้อัตโนมัติ</p>
             </div>
             <label class="text-xs font-bold">คำแนะนำในช่อง</label><input id="ff-placeholder" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.placeholder || '')}">
-            <label class="text-xs font-bold">ตัวเลือก Dropdown (หนึ่งรายการต่อบรรทัด)</label><textarea id="ff-options" class="swal2-textarea !m-0 !w-full" rows="4">${v2EscapeHtml((existing?.options || []).join('\n'))}</textarea>
+            <label class="text-xs font-bold">ตัวเลือก Dropdown (หนึ่งรายการต่อบรรทัด)</label><textarea id="ff-options" class="swal2-textarea !m-0 !w-full" rows="4">${v2EscapeHtml(normalizeSurveyFieldOptions(existing?.options).filter(option => option.active).map(option => option.label).join('\n'))}</textarea>
+            <p class="text-[10px] text-gray-500">แก้ชื่อในบรรทัดเดิมได้เลย ผลสำรวจเก่าจะเปลี่ยนชื่อให้ด้วย; ลบออกจากรายการจะเก็บเป็นค่าเก่าเพื่อไม่ให้ข้อมูลสูญหาย</p>
             <label class="flex items-center gap-2 text-xs font-bold"><input id="ff-required" type="checkbox" ${existing?.required ? 'checked' : ''}> จำเป็นต้องกรอก</label>
         </div>`,
         showCancelButton: true, confirmButtonText: 'ตกลง', cancelButtonText: 'ยกเลิก',
@@ -5555,7 +5654,7 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
             const key = surveyFieldKey(document.getElementById('ff-key').value || label, index >= 0 ? index + 1 : surveyFormDraftFields.length + 1);
             const duplicate = surveyFormDraftFields.some((field, fieldIndex) => field.key === key && fieldIndex !== index);
             if (duplicate) return Swal.showValidationMessage('รหัสฟิลด์นี้ถูกใช้แล้ว');
-            const parsedOptions = document.getElementById('ff-options').value.split(/\r?\n|,|\|/).map(value => value.trim()).filter(Boolean);
+            const parsedOptions = buildSurveyOptionsFromText(document.getElementById('ff-options').value, existing?.options || []);
             let selectedType = normalizeSurveyFieldType(document.getElementById('ff-type').value);
             if (parsedOptions.length && !['select', 'multiselect'].includes(selectedType)) selectedType = 'select';
             return {
@@ -5633,7 +5732,7 @@ async function importSurveyFormExcel(event) {
                     required: /^(1|true|yes|y|ใช่|บังคับ)$/.test(requiredText),
                     placeholder: String(row[placeholderHeader] || '').trim(),
                     source_key: String(row[sourceHeader] || '').trim(),
-                    options: String(row[optionsHeader] || '').split(/\r?\n|,|\|/).map(value => value.trim()).filter(Boolean)
+                    options: buildSurveyOptionsFromText(String(row[optionsHeader] || ''))
                 };
             }).filter(field => field.label);
         } else {
@@ -5680,12 +5779,17 @@ async function saveSurveyFormDefinition(options = {}) {
     if (!name) { Swal.fire('กรุณาตั้งชื่อแบบฟอร์ม', '', 'warning'); return false; }
     if (!surveyFormDraftFields.length) { Swal.fire('แบบฟอร์มยังว่าง', 'กรุณาเพิ่มช่องกรอกอย่างน้อย 1 ช่อง', 'warning'); return false; }
     const existing = getActiveSurveyForm();
+    const previousFields = JSON.parse(JSON.stringify(existing?.fields || []));
     showLoading(true, 'กำลังบันทึกแบบฟอร์ม...');
     try {
         const payload = {
             team_id: currentUser.team_id, work_group_id: v2ActiveWorkGroup.id, name,
             version: (existing?.version || 0) + 1,
-            fields: surveyFormDraftFields.map((field, index) => ({ ...field, sort_order: index })),
+            fields: surveyFormDraftFields.map((field, index) => ({
+                ...field,
+                options: normalizeSurveyFieldOptions(field.options),
+                sort_order: index
+            })),
             layer_type: layerType,
             layer_color: layerColor,
             created_by: existing?.created_by || currentUser.id,
@@ -5693,7 +5797,9 @@ async function saveSurveyFormDefinition(options = {}) {
         };
         const { data, error } = await supabaseClient.from('survey_forms').upsert(payload, { onConflict: 'team_id,work_group_id' }).select().single();
         if (error) throw error;
+        const migratedCount = await migrateSavedSurveyFormValues(previousFields, data.fields || []);
         v2SurveyForms = [...v2SurveyForms.filter(form => form.work_group_id !== data.work_group_id), data];
+        if (migratedCount) await syncJobsSilently();
         surveyFormDraftFields = JSON.parse(JSON.stringify(data.fields || []));
         surveyFormDraftBaseline = JSON.stringify(surveyFormDraftFields);
         surveyFormNameBaseline = data.name;
@@ -5702,7 +5808,7 @@ async function saveSurveyFormDefinition(options = {}) {
             color: normalizeSurveyLayerColor(data.layer_color)
         });
         renderSurveyFormFieldsList();
-        Swal.fire({ toast: true, icon: 'success', title: silent ? 'บันทึกแบบฟอร์มอัตโนมัติแล้ว' : `บันทึกแบบฟอร์มเวอร์ชัน ${data.version} แล้ว`, timer: 1800, showConfirmButton: false });
+        Swal.fire({ toast: true, icon: 'success', title: silent ? 'บันทึกแบบฟอร์มอัตโนมัติแล้ว' : `บันทึกแบบฟอร์มเวอร์ชัน ${data.version} แล้ว${migratedCount ? ` · อัปเดตผลเดิม ${migratedCount} รายการ` : ''}`, timer: 2200, showConfirmButton: false });
         return true;
     } catch (error) {
         Swal.fire('บันทึกแบบฟอร์มไม่สำเร็จ', error.message, 'error');
