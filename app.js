@@ -1025,7 +1025,10 @@ function initApp() {
         const refreshMapToolHistory = () => {
             showPendingActionsBar();
             window.setTimeout(() => {
-                if (isGeometryToolHistoryActive()) resetLayerEditHistory();
+                if (isGeometryToolHistoryActive()) {
+                    resetLayerEditHistory();
+                    beginAllEditableLayerHistory();
+                }
                 syncEditHistoryControls();
             }, 0);
         };
@@ -3155,6 +3158,19 @@ function captureLayerEditSnapshot(layer) {
 function beginLayerEditHistory(layer) {
     const snapshot = captureLayerEditSnapshot(layer);
     if (snapshot) editLayerStartingSnapshots.set(layer, snapshot);
+}
+
+// Global Geoman modes can enable a GeoJSON child without emitting pm:enable
+// on every wrapper layer. Capture all editable leaves when the tool starts so
+// Undo always has a genuine pre-edit shape to restore.
+function beginAllEditableLayerHistory() {
+    const visit = layer => {
+        if (!layer) return;
+        if (typeof layer.eachLayer === 'function') layer.eachLayer(visit);
+        if (layer.options?.pmIgnore === true) return;
+        if (layer.pm || typeof layer.getLatLngs === 'function' || typeof layer.getLatLng === 'function') beginLayerEditHistory(layer);
+    };
+    markersGroup?.eachLayer?.(visit);
 }
 
 function recordLayerEditHistory(layer, target) {
