@@ -912,13 +912,18 @@
         .leaflet-bottom.leaflet-right {
             position: absolute !important;
             right: 10px !important;
-            bottom: calc(300px + var(--safe-bottom)) !important;
+            bottom: auto !important;
             top: auto !important;
             z-index: 890 !important;
             display: flex !important;
             flex-direction: row !important;
+            flex-wrap: nowrap !important;
             gap: 10px !important;
-            align-items: flex-start !important;
+            align-items: flex-end !important;
+            transform: none !important;
+            transform-origin: bottom right !important;
+            overflow-y: auto !important;
+            overscroll-behavior: contain;
         }
 
         .leaflet-pm-icon-rotate,
@@ -931,10 +936,8 @@
             display: none !important;
         }
 
-        /* เมื่อมีคลาส sheet-open (Bottom Sheet เปิดอยู่) ดันขึ้นไปอีก */
-        #map.sheet-open .leaflet-bottom.leaflet-right {
-            bottom: calc(450px + var(--safe-bottom)) !important;
-        }
+        /* ตำแหน่งจริงถูกคำนวณจากปุ่ม “เครื่องมือ” ใน JavaScript เสมอ
+           เพื่อให้ขยายขึ้นเหนือปุ่มแม้เปิด Bottom Sheet หรือหมุนจอ */
 
         /* สไตล์ของแต่ละแถบเครื่องมือ (Draw and Edit) ให้แสดงผลกลมกลืน */
         .leaflet-right .leaflet-pm-toolbar {
@@ -2283,7 +2286,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.3.3" charset="UTF-8"></script>
+    <script src="app.js?v=3.3.4" charset="UTF-8"></script>
 </body>
 
 </html>

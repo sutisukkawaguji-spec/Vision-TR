@@ -3379,12 +3379,19 @@ function positionGeomanToolbars() {
     const mapRect = mapElement.getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
     const gap = window.matchMedia('(max-width: 599px)').matches ? 8 : 10;
-    // Keep expanded toolbars directly above the toggle button.
+    // Keep expanded toolbars directly above the toggle button.  Calculating
+    // against the map bounds avoids Leaflet's default bottom edge placing a
+    // toolbar below the trigger after a resize, orientation change, or sheet.
     const bottom = Math.max(8, mapRect.bottom - btnRect.top + gap);
     const right = Math.max(8, mapRect.right - btnRect.right);
+    const maxHeight = Math.max(120, btnRect.top - mapRect.top - gap);
 
     container.style.setProperty('bottom', `${Math.round(bottom)}px`, 'important');
     container.style.setProperty('right', `${Math.round(right)}px`, 'important');
+    container.style.setProperty('top', 'auto', 'important');
+    container.style.setProperty('max-height', `${Math.round(maxHeight)}px`, 'important');
+    container.style.setProperty('overflow-y', 'auto', 'important');
+    container.style.setProperty('transform', 'none', 'important');
 }
 
 function scheduleGeomanToolbarPosition() {
@@ -3400,12 +3407,20 @@ function ensureGeomanToolbarPositioning() {
     window.addEventListener('orientationchange', scheduleGeomanToolbarPosition, { passive: true });
 
     const fabContainer = document.getElementById('fab-container');
+    const mapElement = document.getElementById('map');
     if (fabContainer) {
         fabContainer.addEventListener('transitionend', positionGeomanToolbars);
         new MutationObserver(scheduleGeomanToolbarPosition).observe(fabContainer, {
             attributes: true,
             attributeFilter: ['class']
         });
+    }
+    if (mapElement && typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(scheduleGeomanToolbarPosition).observe(mapElement);
+    }
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', scheduleGeomanToolbarPosition, { passive: true });
+        window.visualViewport.addEventListener('scroll', scheduleGeomanToolbarPosition, { passive: true });
     }
 }
 
