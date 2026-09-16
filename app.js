@@ -3204,6 +3204,7 @@ let rulerMarkersGroup = null;
 let rulerLine = null;
 let rulerPolygon = null;
 let rulerHintLine = null;
+let rulerIsClosed = false;
 
 function initRulerGroup() {
     if (!rulerMarkersGroup && map) {
@@ -3259,6 +3260,7 @@ function disableRulerEvents() {
 
 function clearRuler() {
     rulerPoints = [];
+    rulerIsClosed = false;
     if (rulerMarkersGroup) rulerMarkersGroup.clearLayers();
     rulerLine = null;
     rulerPolygon = null;
@@ -3278,13 +3280,12 @@ function formatAreaRaiTH(sqMeters) {
     const rai = Math.floor(totalWah / 400);
     const remainderWah = totalWah % 400;
     const ngan = Math.floor(remainderWah / 100);
-    const wah = (remainderWah % 100).toFixed(1);
-    
-    let result = '';
-    if (rai > 0) result += `${rai} ไร่ `;
-    if (ngan > 0 || rai > 0) result += `${ngan} งาน `;
-    result += `${wah} ตร.ว.`;
-    return result + ` (${sqMeters.toFixed(1)} ตร.ม.)`;
+    const wah = remainderWah % 100;
+    return `${rai}-${ngan}-${wah.toFixed(2).padStart(5, '0')} ไร่-งาน-ตร.ว.`;
+}
+
+function formatAreaSquareMeters(sqMeters) {
+    return `${Number(sqMeters || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} ตร.ม.`;
 }
 
 function calculatePolylineDistance(latlngs) {
@@ -3311,12 +3312,20 @@ function calculatePolygonArea(latlngs) {
 function onRulerMapClick(e) {
     if (!isRulerActive) return;
     const latlng = e.latlng;
+    if (rulerIsClosed) {
+        clearRuler();
+        initRulerGroup();
+    }
+    if (rulerPoints.length >= 3 && isNearRulerStart(latlng)) {
+        closeRulerShape();
+        return;
+    }
     rulerPoints.push(latlng);
-    updateRulerGraphics(latlng);
+    updateRulerGraphics();
 }
 
 function onRulerMouseMove(e) {
-    if (!isRulerActive || rulerPoints.length === 0) return;
+    if (!isRulerActive || rulerPoints.length === 0 || rulerIsClosed) return;
     const currentLatLng = e.latlng;
     const tempPoints = [...rulerPoints, currentLatLng];
     
@@ -3330,81 +3339,85 @@ function onRulerMouseMove(e) {
         }).addTo(rulerMarkersGroup);
     }
     
-    const dist = calculatePolylineDistance(tempPoints);
-    let area = 0;
-    if (tempPoints.length >= 3) {
-        area = calculatePolygonArea(tempPoints);
-    }
-    showRulerPanel(dist, area);
+    showRulerPanel(calculatePolylineDistance(tempPoints), 0, false);
 }
 
 function onRulerDblClick(e) {
     if (!isRulerActive) return;
     L.DomEvent.stopPropagation(e);
-    if (rulerPoints.length >= 2) {
-        const totalDist = calculatePolylineDistance(rulerPoints);
-        const area = rulerPoints.length >= 3 ? calculatePolygonArea(rulerPoints) : 0;
-        showRulerPanel(totalDist, area, true);
-    }
+    if (rulerPoints.length >= 3) closeRulerShape();
 }
 
-function updateRulerGraphics(latestLatLng) {
+function isNearRulerStart(latlng) {
+    if (!map || !rulerPoints.length) return false;
+    return map.latLngToContainerPoint(latlng).distanceTo(map.latLngToContainerPoint(rulerPoints[0])) <= 22;
+}
+
+function rulerSegmentMidpoint(from, to) {
+    return L.latLng((from.lat + to.lat) / 2, (from.lng + to.lng) / 2);
+}
+
+function addRulerSegmentLabel(from, to) {
+    L.marker(rulerSegmentMidpoint(from, to), {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
+    }).bindTooltip(formatDistanceTH(from.distanceTo(to)), {
+        permanent: true,
+        direction: 'center',
+        offset: [0, -12],
+        className: 'ruler-segment-tooltip'
+    }).addTo(rulerMarkersGroup).openTooltip();
+}
+
+function closeRulerShape() {
+    if (rulerPoints.length < 3 || rulerIsClosed) return;
+    rulerIsClosed = true;
+    if (rulerHintLine) {
+        rulerMarkersGroup.removeLayer(rulerHintLine);
+        rulerHintLine = null;
+    }
+    updateRulerGraphics();
+}
+
+function updateRulerGraphics() {
     initRulerGroup();
+    rulerMarkersGroup.clearLayers();
+    rulerLine = null;
+    rulerPolygon = null;
+    rulerHintLine = null;
 
-    const marker = L.circleMarker(latestLatLng, {
-        radius: 6,
-        color: '#4f46e5',
-        fillColor: '#ffffff',
-        fillOpacity: 1,
-        weight: 3
-    }).addTo(rulerMarkersGroup);
-
-    if (rulerPoints.length > 1) {
-        const segDist = rulerPoints[rulerPoints.length - 2].distanceTo(latestLatLng);
-        marker.bindTooltip(formatDistanceTH(segDist), {
-            permanent: true,
-            direction: 'top',
-            className: 'ruler-segment-tooltip'
-        }).openTooltip();
-    } else {
-        marker.bindTooltip('จุดเริ่ม', {
-            permanent: true,
-            direction: 'top',
-            className: 'ruler-segment-tooltip'
-        }).openTooltip();
-    }
+    rulerPoints.forEach(point => L.circleMarker(point, {
+        radius: 6, color: '#4f46e5', fillColor: '#ffffff', fillOpacity: 1, weight: 3, interactive: false
+    }).addTo(rulerMarkersGroup));
 
     if (rulerPoints.length >= 2) {
-        if (!rulerLine) {
-            rulerLine = L.polyline(rulerPoints, {
-                color: '#4f46e5',
-                weight: 4,
-                opacity: 0.9
-            }).addTo(rulerMarkersGroup);
-        } else {
-            rulerLine.setLatLngs(rulerPoints);
-        }
+        const linePoints = rulerIsClosed ? [...rulerPoints, rulerPoints[0]] : rulerPoints;
+        rulerLine = L.polyline(linePoints, { color: '#4f46e5', weight: 4, opacity: 0.9 }).addTo(rulerMarkersGroup);
+        for (let index = 1; index < rulerPoints.length; index++) addRulerSegmentLabel(rulerPoints[index - 1], rulerPoints[index]);
+        if (rulerIsClosed) addRulerSegmentLabel(rulerPoints[rulerPoints.length - 1], rulerPoints[0]);
     }
 
-    if (rulerPoints.length >= 3) {
-        if (!rulerPolygon) {
-            rulerPolygon = L.polygon(rulerPoints, {
-                color: '#6366f1',
-                fillColor: '#818cf8',
-                fillOpacity: 0.25,
-                weight: 2
-            }).addTo(rulerMarkersGroup);
-        } else {
-            rulerPolygon.setLatLngs(rulerPoints);
-        }
+    const area = rulerIsClosed ? calculatePolygonArea(rulerPoints) : 0;
+    if (rulerIsClosed) {
+        rulerPolygon = L.polygon(rulerPoints, { color: '#6366f1', fillColor: '#818cf8', fillOpacity: 0.25, weight: 2 }).addTo(rulerMarkersGroup);
+        const center = rulerPolygon.getBounds().getCenter();
+        L.marker(center, {
+            interactive: false,
+            keyboard: false,
+            icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
+        }).bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, {
+            permanent: true,
+            direction: 'center',
+            className: 'ruler-area-tooltip'
+        }).addTo(rulerMarkersGroup).openTooltip();
     }
 
-    const totalDist = calculatePolylineDistance(rulerPoints);
-    const area = rulerPoints.length >= 3 ? calculatePolygonArea(rulerPoints) : 0;
-    showRulerPanel(totalDist, area);
+    const linePoints = rulerIsClosed ? [...rulerPoints, rulerPoints[0]] : rulerPoints;
+    showRulerPanel(calculatePolylineDistance(linePoints), area, rulerIsClosed);
 }
 
-function showRulerPanel(distMeters, areaSqMeters) {
+function showRulerPanel(distMeters, areaSqMeters, isClosed = false) {
     let panel = document.getElementById('ruler-info-panel');
     if (!panel) {
         panel = document.createElement('div');
@@ -3420,7 +3433,7 @@ function showRulerPanel(distMeters, areaSqMeters) {
                 <div class="font-bold text-white flex items-center gap-1.5">
                     <span>ระยะทาง: ${formatDistanceTH(distMeters)}</span>
                 </div>
-                ${areaSqMeters > 0 ? `<div class="text-[11px] text-emerald-300 font-semibold mt-0.5">พื้นที่: ${formatAreaRaiTH(areaSqMeters)}</div>` : ''}
+                ${isClosed ? `<div class="text-[11px] text-emerald-300 font-semibold mt-0.5">เนื้อที่: ${formatAreaRaiTH(areaSqMeters)}</div><div class="text-[10px] text-emerald-100">${formatAreaSquareMeters(areaSqMeters)}</div>` : '<div class="text-[10px] text-slate-300">แตะจุดเริ่มต้นหรือดับเบิลคลิกเพื่อปิดรูปและคำนวณเนื้อที่</div>'}
             </div>
         </div>
         <button onclick="clearRuler()" title="ล้างค่าการวัด" class="ml-2 w-7 h-7 rounded-full bg-slate-800 hover:bg-red-600 text-gray-300 hover:text-white flex items-center justify-center transition cursor-pointer">

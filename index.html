@@ -1059,7 +1059,26 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
         }
         .ruler-segment-tooltip::before {
-            border-top-color: rgba(15, 23, 42, 0.88) !important;
+            display: none !important;
+        }
+        .ruler-label-anchor {
+            background: transparent !important;
+            border: 0 !important;
+        }
+        .ruler-area-tooltip {
+            background: rgba(6, 78, 59, .94) !important;
+            border: 1px solid rgba(110, 231, 183, .8) !important;
+            border-radius: 10px !important;
+            color: #fff !important;
+            font-family: 'Sarabun', sans-serif !important;
+            padding: 5px 9px !important;
+            box-shadow: 0 5px 16px rgba(6, 78, 59, .35) !important;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .ruler-area-tooltip::before { display: none !important; }
+        .ruler-area-main { font-size: 12px; font-weight: 800; }
+        .ruler-area-sqm { font-size: 10px; color: #d1fae5; margin-top: 1px; }
         }
 
         @keyframes fadeIn {
@@ -2340,7 +2359,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.5" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.6" charset="UTF-8"></script>
 </body>
 
 </html>
