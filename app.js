@@ -8234,7 +8234,7 @@ function onSearchModeChange(clearValue = true) {
     if (clearValue) input.value = '';
     selectedPlotSearchJobId = null;
     clearPlotSearchFocus();
-    input.placeholder = mode === 'map' ? 'ค้นหาสถานที่ ร้านค้า หรือที่อยู่...' : 'ค้นหาข้อมูลแปลง...';
+    input.placeholder = mode === 'map' ? 'ค้นหาสถานที่ เช่น บังคับคดี/หนองบัวลำภู...' : 'ค้นหาข้อมูลแปลง...';
     results.innerHTML = '';
     results.classList.remove('active');
     renderMap(false);
@@ -8306,6 +8306,12 @@ async function searchMapPlaces(query) {
         }));
 }
 
+function normalizePlaceSearchQuery(query) {
+    // Slash is a convenient mobile separator, matching plot-data search syntax.
+    // Google Places receives one natural-language query containing every term.
+    return String(query || '').split('/').map(term => term.trim()).filter(Boolean).join(' ');
+}
+
 async function selectPlaceSearchResult(index, event) {
     // The list stays on screen after previewing a place, just like plot search.
     event?.stopPropagation();
@@ -8358,7 +8364,7 @@ doSearch = async function () {
         await new Promise(resolve => setTimeout(resolve, 350));
         if (requestId !== placeSearchRequestId) return;
         try {
-            const places = await searchMapPlaces(search);
+            const places = await searchMapPlaces(normalizePlaceSearchQuery(search));
             if (requestId !== placeSearchRequestId) return;
             window.currentPlaceSearchResults = places;
             results.innerHTML = places.length ? `
