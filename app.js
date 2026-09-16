@@ -7183,7 +7183,7 @@ function previewPlotFromSearch(id, event) {
     if (!job || !map) return;
     selectedPlotSearchJobId = id;
     clearPlotSearchFocus();
-    const style = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', interactive: false };
+    const style = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', className: 'plot-search-focus', interactive: false };
     if (job.geometry?.type?.includes('Polygon')) {
         plotSearchFocusLayer = L.geoJSON(job.geometry, { style });
     } else if (job.properties?.is_circle && job.properties.radius) {

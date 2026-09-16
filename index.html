@@ -433,6 +433,14 @@
             border-left: 4px solid #10b981 !important;
         }
 
+        .leaflet-interactive.plot-search-focus {
+            animation: plot-search-focus-pulse .6s ease-in-out 4;
+            transform-origin: center;
+        }
+        @keyframes plot-search-focus-pulse {
+            50% { stroke: #facc15; stroke-width: 11px; fill-opacity: .32; opacity: .45; }
+        }
+
         #status-bar {
             background: rgba(255, 255, 255, 0.95);
             border: 1px solid #ddd;
