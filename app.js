@@ -3695,7 +3695,7 @@ function injectThreePointRectangleButton() {
     button.setAttribute('role', 'button');
     button.setAttribute('title', 'วาดสี่เหลี่ยม 3 จุด');
     button.setAttribute('aria-label', 'วาดสี่เหลี่ยม 3 จุด: เริ่ม แนวยาว ความกว้าง');
-    button.innerHTML = '<div class="control-icon"><i class="fa-regular fa-rectangle-wide" style="font-size:19px;color:#374151;"></i></div>';
+    button.innerHTML = '<div class="control-icon"><i class="fa-solid fa-vector-square" style="font-size:19px;color:#374151;"></i></div>';
     button.onclick = event => { event.preventDefault(); event.stopPropagation(); startThreePointRectangleMode(); };
     container.appendChild(button);
     const nativeContainer = nativeRectangle?.closest('.button-container');
