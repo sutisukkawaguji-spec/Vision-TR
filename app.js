@@ -1112,8 +1112,8 @@ function initApp() {
             }
 
             const parentJob = dbJobs.find(job => isLatLngInJob({ lat, lng }, job));
-            if (map.hasLayer(layer)) map.removeLayer(layer);
             if (!parentJob) {
+                if (map.hasLayer(layer)) map.removeLayer(layer);
                 await saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, isCircle, areaSqm });
                 return;
             }
@@ -1131,7 +1131,7 @@ function initApp() {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
-            await addSurveyFeatureToJob(parentJob, surveyFeature);
+            stageSurveyFeatureForSave(layer, parentJob, surveyFeature);
         });
 
         // Load PM settings from localStorage
@@ -1850,6 +1850,23 @@ async function addSurveyFeatureToJob(job, feature) {
     return openSurveyFeatureEditor(job.id, null, feature);
 }
 
+function stageSurveyFeatureForSave(layer, parentJob, feature) {
+    if (!layer || !parentJob) return;
+    layer.pendingSurveyFeature = feature;
+    if (typeof layer.setStyle === 'function') layer.setStyle({ color: '#ef4444', fillColor: '#ef4444', fillOpacity: .28, weight: 4 });
+    layer.bindTooltip?.('แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
+    layer.on('click', async event => {
+        const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
+        if (editing || layer.isOpeningSurveySave) return;
+        if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+        markerJustClicked = true;
+        layer.isOpeningSurveySave = true;
+        const saved = await addSurveyFeatureToJob(parentJob, feature);
+        // Cancel keeps the draft on the map so it can be opened again later.
+        if (!saved) layer.isOpeningSurveySave = false;
+    });
+}
+
 async function dismissManualTravelPin(event) {
     event?.preventDefault();
     event?.stopPropagation();
@@ -1935,7 +1952,7 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
             return { name: document.getElementById('feature-title').value.trim(), note: document.getElementById('feature-note').value.trim(), values, files: Array.from(document.getElementById('feature-photo-input').files || []) };
         }
     });
-    if (!result.isConfirmed) return;
+    if (!result.isConfirmed) return false;
     showLoading(true, 'กำลังบันทึกรูปวาด...');
     try {
         const current = Array.isArray(job.properties?.survey_features) ? job.properties.survey_features : [];
@@ -1969,10 +1986,12 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
             showConfirmButton: false
         });
         if (refreshedJob) { selectedSurveyFeatureId = savedFeature.id; openSheet(refreshedJob); focusSurveyFeature(job.id, savedFeature.id, false); }
+        return true;
     } catch (error) {
         console.error('Survey feature save error', error);
         renderMap(false);
         Swal.fire('บันทึกรูปวาดไม่สำเร็จ', error.message, 'error');
+        return false;
     } finally { showLoading(false); }
 }
 
@@ -2011,10 +2030,8 @@ async function saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, 
         await saveJobToSupabase(job);
         newlyCreatedUnsavedJobIds.add(job.id);
         await syncJobsSilently();
-        const refreshedJob = findJobById(job.id);
-        // เปิดแผงรายละเอียดโดยตรงหลังวาดเสร็จ ไม่แสดง toast ทับแผนที่
-        // เพื่อให้เริ่มกรอก/แก้ไขงานต่อได้ทันทีบนอุปกรณ์พกพา
-        if (refreshedJob) openSheet(refreshedJob);
+        // Keep the map clear after drawing. The user opens the save panel by
+        // tapping the newly created marker or boundary when ready.
     } catch (error) {
         console.error('Standalone survey drawing save error', error);
         Swal.fire('บันทึกรูปวาดอิสระไม่สำเร็จ', error.message, 'error');
