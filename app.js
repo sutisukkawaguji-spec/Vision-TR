@@ -6230,7 +6230,7 @@ async function loadTeamMembers() {
             }
 
             listEl.innerHTML += `
-                        <div class="flex items-center justify-between p-2 border border-gray-100 rounded-xl bg-gray-50/50">
+                        <div data-team-member-id="${m.id}" class="flex items-center justify-between p-2 border border-gray-100 rounded-xl bg-gray-50/50">
                             <div>
                                 <div class="text-xs font-bold text-gray-850">${m.display_name || 'ผู้ใช้ร่วมกัน'}</div>
                                 <div class="text-[10px] text-gray-400">${m.email} (${m.user_code})</div>
@@ -6240,7 +6240,7 @@ async function loadTeamMembers() {
         });
 
         if (data.length <= 1) {
-            listEl.innerHTML += `<div class="text-[11px] text-gray-400 text-center py-3">ยังไม่มีสมาชิกอื่นในทีมสำรวจนี้</div>`;
+            listEl.innerHTML += `<div class="team-empty-state text-[11px] text-gray-400 text-center py-3">ยังไม่มีสมาชิกอื่นในทีมสำรวจนี้</div>`;
         }
     } catch (e) {
         console.error("Load team members error", e);
@@ -6266,16 +6266,26 @@ async function addTeamMemberByCode() {
         }
 
         // อัปเดต team_id ของเขาให้มาเป็นทีมเรา
-        const { error: updErr } = await supabaseClient
+        const { data: updatedMember, error: updErr } = await supabaseClient
             .from('profiles')
             .update({ team_id: currentUser.team_id })
-            .eq('id', member.id);
+            .eq('id', member.id)
+            .select('id, email, display_name, user_code')
+            .single();
 
         if (updErr) throw updErr;
 
         document.getElementById('inp-add-member-code').value = '';
         Swal.fire('สำเร็จ', `เพิ่มคุณ ${member.display_name} เข้าทีมสำรวจร่วมกันแล้ว`, 'success');
         await loadTeamMembers();
+        // Render immediately even if the profiles read is still catching up after
+        // the team-id update, so the owner can see the successful addition now.
+        const listEl = document.getElementById('team-members-list');
+        if (listEl && !listEl.querySelector(`[data-team-member-id="${member.id}"]`)) {
+            listEl.querySelectorAll('.team-empty-state').forEach(el => el.remove());
+            const shown = updatedMember || { ...member, email: '' };
+            listEl.insertAdjacentHTML('beforeend', `<div data-team-member-id="${shown.id}" class="flex items-center justify-between p-2 border border-gray-100 rounded-xl bg-gray-50/50"><div class="min-w-0"><div class="text-xs font-bold text-gray-850 truncate">${v2EscapeHtml(shown.display_name || 'ผู้ใช้ร่วมกัน')}</div><div class="text-[10px] text-gray-400 truncate">${v2EscapeHtml(shown.email || '')} (${v2EscapeHtml(shown.user_code || code)})</div></div><span class="text-[9px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">สมาชิกใหม่</span></div>`);
+        }
     } catch (e) {
         Swal.fire('ล้มเหลว', e.message, 'error');
     } finally {
