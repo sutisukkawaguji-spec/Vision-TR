@@ -3463,30 +3463,14 @@ function decorateGeomanToolbars() {
             const accessibleName = button.getAttribute('title') || `${label}แผนที่`;
             if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', accessibleName);
 
-            // Ensure Rotate button icon is explicitly visible (always overwrite to prevent duplication)
+            // Keep Geoman's native rotate control intact. Replacing its generated
+            // icon DOM can break the plugin's own rotate handler on some versions.
             const isRotate = button.classList.contains('action-rotate') || 
                              button.querySelector('.leaflet-pm-icon-rotate') || 
                              (button.getAttribute('title') || '').includes('หมุน') || 
                              (button.getAttribute('title') || '').toLowerCase().includes('rotate');
             if (isRotate) {
-                const iconDiv = button.querySelector('.control-icon');
-                if (iconDiv) {
-                    iconDiv.style.backgroundImage = 'none';
-                    iconDiv.style.backgroundSize = '0';
-                    // Always set exactly one icon (clears any duplicate content)
-                    iconDiv.innerHTML = '<i class="fa-solid fa-arrows-rotate" style="font-size:18px;color:#374151;"></i>';
-                } else {
-                    // No .control-icon child — inject directly into button but avoid nesting weirdly
-                    button.style.backgroundImage = 'none';
-                    if (!button.querySelector('i.fa-arrows-rotate')) {
-                        const iEl = document.createElement('i');
-                        iEl.className = 'fa-solid fa-arrows-rotate';
-                        iEl.style.cssText = 'font-size:18px;color:#374151;pointer-events:none;';
-                        // Remove any existing icon children first
-                        button.querySelectorAll('i').forEach(el => el.remove());
-                        button.appendChild(iEl);
-                    }
-                }
+                button.setAttribute('aria-label', 'หมุนรูปแปลง');
             }
         });
     });
@@ -7835,6 +7819,14 @@ syncJobsFromDB = async function (fitBounds = false) {
 syncJobsSilently = async function () {
     if (!supabaseClient || !currentUser || isNavigating || isMapClickBlocked) return;
     try {
+        const { data: profile } = await supabaseClient.from('profiles').select('team_id').eq('id', currentUser.id).maybeSingle();
+        if (profile?.team_id && profile.team_id !== currentUser.team_id) {
+            currentUser.team_id = profile.team_id;
+            try { localStorage.setItem('vision-tr-offline-user', JSON.stringify(currentUser)); } catch (error) { }
+            await syncJobsFromDB(true);
+            await loadTeamMembers();
+            return;
+        }
         const { data, error } = await supabaseClient.from('plot_records').select('*').eq('work_group_id', v2ActiveWorkGroup.id);
         if (error) throw error;
         v2PlotRecords = data || [];
