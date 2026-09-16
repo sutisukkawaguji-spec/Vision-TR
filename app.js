@@ -1021,21 +1021,19 @@ function initApp() {
             }
         });
 
-        // ดักจับเหตุการณ์การปิดโหมดแก้ไขระดับแผนที่เพื่อประมวลผลการเซฟสะสม
-        map.on('pm:globaleditmodetoggled', (e) => {
+        // Show the shared undo/redo panel for every geometry tool, not only Edit Layer.
+        const refreshMapToolHistory = () => {
             showPendingActionsBar();
             window.setTimeout(() => {
-                editLayerHistory = [];
-                editLayerHistoryIndex = -1;
+                if (isGeometryToolHistoryActive()) resetLayerEditHistory();
                 syncEditHistoryControls();
             }, 0);
-        });
-        map.on('pm:globaldragmodetoggled', (e) => {
-            showPendingActionsBar();
-        });
-        map.on('pm:globalrotatemodetoggled', (e) => {
-            showPendingActionsBar();
-        });
+        };
+        map.on('pm:globaleditmodetoggled', refreshMapToolHistory);
+        map.on('pm:globaldragmodetoggled', refreshMapToolHistory);
+        map.on('pm:globalrotatemodetoggled', refreshMapToolHistory);
+        map.on('pm:globaldrawmodetoggled', refreshMapToolHistory);
+        map.on('pm:globalremovalmodetoggled', refreshMapToolHistory);
 
         // ดักจับเมื่อมีการลบเลเยอร์ด้วยเครื่องมือลบของ Geoman
         map.on('pm:remove', async (e) => {
@@ -3186,10 +3184,26 @@ function syncEditHistoryControls() {
     const panel = document.getElementById('edit-history-controls');
     const undoButton = document.getElementById('btn-edit-undo');
     const redoButton = document.getElementById('btn-edit-redo');
-    const editing = Boolean(map?.pm?.globalEditModeEnabled?.());
-    panel?.classList.toggle('hidden', !editing);
+    panel?.classList.toggle('hidden', !isGeometryToolHistoryActive());
     if (undoButton) undoButton.disabled = editLayerHistoryIndex < 0;
     if (redoButton) redoButton.disabled = editLayerHistoryIndex >= editLayerHistory.length - 1;
+}
+
+function isGeometryToolHistoryActive() {
+    return Boolean(isThreePointRectangleMode || (
+        map?.pm && (
+            map.pm.globalDrawModeEnabled?.() ||
+            map.pm.globalEditModeEnabled?.() ||
+            map.pm.globalDragModeEnabled?.() ||
+            map.pm.globalRotateModeEnabled?.() ||
+            map.pm.globalRemovalModeEnabled?.()
+        )
+    ));
+}
+
+function resetLayerEditHistory() {
+    editLayerHistory = [];
+    editLayerHistoryIndex = -1;
 }
 
 async function applyEditHistory(direction) {
@@ -3456,6 +3470,7 @@ function stopThreePointRectangleMode() {
     map.off('mousemove', onThreePointRectangleMove);
     document.getElementById('btn-three-point-rectangle')?.classList.remove('active');
     document.getElementById('btn-three-point-rectangle')?.removeAttribute('aria-pressed');
+    syncEditHistoryControls();
 }
 
 // Geoman permits several global modes to be enabled at once.  That is useful
@@ -3503,6 +3518,7 @@ function startThreePointRectangleMode() {
     stopRulerTool();
     disableNativeMapToolModes();
     clearDrawingMeasurements();
+    resetLayerEditHistory();
     isThreePointRectangleMode = true;
     threePointRectanglePoints = [];
     initThreePointRectanglePreview();
@@ -3511,6 +3527,7 @@ function startThreePointRectangleMode() {
     const button = document.getElementById('btn-three-point-rectangle');
     button?.classList.add('active');
     button?.setAttribute('aria-pressed', 'true');
+    syncEditHistoryControls();
 }
 
 function onThreePointRectangleMove(event) {
