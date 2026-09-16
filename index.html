@@ -1425,7 +1425,7 @@
                     <option value="map">สถานที่</option>
                 </select>
                 <input type="text" id="inp-search"
-                    placeholder="ค้นหาข้อมูลแปลง..." class="search-input w-full" onkeyup="doSearch()">
+                    placeholder="ค้นหาข้อมูลแปลง เช่น สุพัตรา/ค้างชำระ" class="search-input w-full" oninput="scheduleDataSearch()">
                 <select id="sel-amphoe" onchange="onAmphoeChange()" class="filter-select hidden" aria-hidden="true">
                     <option value="">อ.ทั้งหมด</option>
                 </select>
@@ -2286,7 +2286,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.3.4" charset="UTF-8"></script>
+    <script src="app.js?v=3.3.5" charset="UTF-8"></script>
 </body>
 
 </html>

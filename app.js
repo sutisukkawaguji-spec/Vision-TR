@@ -7885,18 +7885,19 @@ importData = async function (input) {
 
 getFilteredJobs = function () {
     const searchMode = document.getElementById('search-mode')?.value || 'data';
-    const search = searchMode === 'data'
-        ? (document.getElementById('inp-search').value || '').toLocaleLowerCase('th').trim()
-        : '';
+    const searchTerms = searchMode === 'data' ? v2ParsePlotSearchTerms(document.getElementById('inp-search').value || '') : [];
     const amphoe = document.getElementById('sel-amphoe').value;
     const tambon = document.getElementById('sel-tambon').value;
     return dbJobs.filter(job => {
         const properties = job.properties || {};
-        const haystack = `${job.id} ${job.category} ${v2SearchText(properties)}`.toLocaleLowerCase('th');
+        // search_text is composed once when data is loaded, including Base Map,
+        // parent form, child surveys and notes.  Avoid flattening the entire
+        // JSON object again on every keystroke for large imports.
+        const haystack = `${job.id} ${job.category} ${properties.search_text || v2SearchText(properties)}`.toLocaleLowerCase('th');
         const valueA = String(properties.amphoe || properties.AMPH_NAME || properties.AMPHOE || properties.district || '').trim();
         const valueT = String(properties.tambon || properties.TUMB_NAME || properties.TAMBON || properties.subdistrict || '').trim();
         return job.category === currentUser.category
-            && (!search || haystack.includes(search))
+            && (!searchTerms.length || searchTerms.every(term => haystack.includes(term)))
             && (!amphoe || valueA === amphoe)
             && (!tambon || valueT === tambon);
     });
@@ -7945,15 +7946,39 @@ function v2EscapeHtml(value) {
     })[character]);
 }
 
-function v2MatchingFields(properties, search) {
+function v2ParsePlotSearchTerms(query) {
+    return String(query || '').toLocaleLowerCase('th').split('/').map(term => term.trim()).filter(Boolean).slice(0, 8);
+}
+
+function v2MatchingFields(properties, terms) {
     const matches = [];
     Object.entries(properties || {}).forEach(([key, value]) => {
-        if (matches.length >= 2 || value === null || value === undefined || typeof value === 'object') return;
+        if (matches.length >= 2 || value === null || value === undefined || typeof value === 'object' || key === 'search_text') return;
         const text = String(value);
-        if (`${key} ${text}`.toLocaleLowerCase('th').includes(search)) matches.push(`${key}: ${text}`);
+        if (terms.some(term => `${key} ${text}`.toLocaleLowerCase('th').includes(term))) matches.push(`${key}: ${text}`);
     });
     return matches;
 }
+
+function v2RankPlotSearchResults(jobs, terms) {
+    return [...jobs].sort((a, b) => {
+        const score = job => {
+            const props = job.properties || {};
+            const primary = `${job.id} ${props.name || ''}`.toLocaleLowerCase('th');
+            return terms.reduce((total, term) => total + (primary === term ? 1000 : primary.startsWith(term) ? 250 : primary.includes(term) ? 80 : 0), 0);
+        };
+        return score(b) - score(a) || String(a.properties?.name || a.id).localeCompare(String(b.properties?.name || b.id), 'th');
+    });
+}
+
+let dataSearchTimer = null;
+function scheduleDataSearch() {
+    const mode = document.getElementById('search-mode')?.value || 'data';
+    if (mode === 'map') { doSearch(); return; }
+    window.clearTimeout(dataSearchTimer);
+    dataSearchTimer = window.setTimeout(() => doSearch(), 280);
+}
+window.scheduleDataSearch = scheduleDataSearch;
 
 function onSearchModeChange(clearValue = true) {
     const mode = document.getElementById('search-mode')?.value || 'data';
@@ -8060,6 +8085,7 @@ async function selectPlaceSearchResult(index) {
 doSearch = async function () {
     const mode = document.getElementById('search-mode')?.value || 'data';
     const search = (document.getElementById('inp-search').value || '').toLocaleLowerCase('th').trim();
+    const plotTerms = mode === 'data' ? v2ParsePlotSearchTerms(search) : [];
     const results = document.getElementById('search-results');
     results.innerHTML = '';
     if (!search) {
@@ -8096,11 +8122,19 @@ doSearch = async function () {
     }
 
     renderMap();
-    const hits = getFilteredJobs();
-    results.classList.toggle('active', hits.length > 0);
+    const hits = v2RankPlotSearchResults(getFilteredJobs(), plotTerms);
+    results.classList.toggle('active', true);
+    if (!hits.length) {
+        results.innerHTML = `<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-magnifying-glass mr-1"></i>ไม่พบแปลงที่ตรงกับ ${plotTerms.map(term => `“${v2EscapeHtml(term)}”`).join(' + ')}<div class="text-[10px] text-gray-400 mt-1">ลองตัดคำบางส่วนออก หรือใช้ / เพื่อค้นหาหลายเงื่อนไข</div></div>`;
+        return;
+    }
+    const scopeHint = plotTerms.length > 1
+        ? `<div class="px-3 py-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 border-b border-emerald-100">ค้นหาครบทุกเงื่อนไข: ${plotTerms.map(term => `<span class="inline-block bg-white border border-emerald-200 rounded px-1.5 py-0.5 mr-1">${v2EscapeHtml(term)}</span>`).join('')} · พบ ${hits.length} แปลง</div>`
+        : hits.length > 20 ? `<div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${hits.length} แปลง · แสดง 20 รายการแรก</div>` : '';
+    results.innerHTML = scopeHint;
     hits.slice(0, 20).forEach(job => {
         const properties = job.properties || {};
-        const matches = v2MatchingFields(properties, search);
+        const matches = v2MatchingFields(properties, plotTerms);
         results.innerHTML += `
             <div class="p-3 border-b cursor-pointer hover:bg-gray-50" onclick="openSheetFromSearch('${v2EscapeHtml(job.id)}')">
                 <div class="text-sm font-bold text-gray-800">${v2EscapeHtml(properties.name || '(ไม่มีชื่อแปลง)')}</div>
