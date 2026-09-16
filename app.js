@@ -1050,7 +1050,13 @@ function initApp() {
             }
         });
 
+        // Show side-by-side dimensions while a new polygon or rectangle is
+        // being drawn. These are temporary measurement labels only.
+        map.on('pm:drawstart', watchDrawingMeasurements);
+        map.on('pm:drawend', () => setTimeout(clearDrawingMeasurements, 0));
+
         map.on('pm:create', async (e) => {
+            clearDrawingMeasurements();
             const layer = e.layer;
             const shape = e.shape; // 'Marker', 'Rectangle', 'Polygon', 'Circle'
 
@@ -3205,6 +3211,71 @@ let rulerLine = null;
 let rulerPolygon = null;
 let rulerHintLine = null;
 let rulerIsClosed = false;
+let drawingMeasureGroup = null;
+let drawingMeasureLayer = null;
+
+function initDrawingMeasureGroup() {
+    if (!drawingMeasureGroup && map) drawingMeasureGroup = L.layerGroup().addTo(map);
+}
+
+function clearDrawingMeasurements() {
+    drawingMeasureGroup?.clearLayers();
+    drawingMeasureLayer = null;
+}
+
+function getDrawingMeasurePoints(layer) {
+    const unwrap = value => Array.isArray(value) && value.length && Array.isArray(value[0]) ? unwrap(value[0]) : value;
+    const points = unwrap(layer?.getLatLngs?.() || []);
+    return Array.isArray(points) ? points.filter(point => Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) : [];
+}
+
+function addMapSideLabel(group, from, to) {
+    L.marker(rulerSegmentMidpoint(from, to), {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
+    }).bindTooltip(formatDistanceTH(from.distanceTo(to)), {
+        permanent: true,
+        direction: 'center',
+        offset: [0, -12],
+        className: 'ruler-segment-tooltip'
+    }).addTo(group).openTooltip();
+}
+
+function renderDrawingMeasurements(layer, shape) {
+    if (!layer || !['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
+    initDrawingMeasureGroup();
+    drawingMeasureGroup.clearLayers();
+    const points = getDrawingMeasurePoints(layer);
+    if (points.length < 2) return;
+    for (let index = 1; index < points.length; index++) addMapSideLabel(drawingMeasureGroup, points[index - 1], points[index]);
+    // Rectangles are closed as soon as the opposite corner is dragged. A
+    // polygon becomes a closed shape after its third vertex is placed.
+    const isClosed = shape === 'Rectangle' || points.length >= 3;
+    if (!isClosed) return;
+    addMapSideLabel(drawingMeasureGroup, points[points.length - 1], points[0]);
+    const area = calculatePolygonArea(points);
+    const center = L.polygon(points).getBounds().getCenter();
+    L.marker(center, {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
+    }).bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, {
+        permanent: true,
+        direction: 'center',
+        className: 'ruler-area-tooltip'
+    }).addTo(drawingMeasureGroup).openTooltip();
+}
+
+function watchDrawingMeasurements(event) {
+    const shape = event?.shape;
+    const layer = event?.workingLayer;
+    if (!layer || !['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
+    drawingMeasureLayer = layer;
+    const refresh = () => renderDrawingMeasurements(layer, shape);
+    layer.on('pm:change pm:vertexadded pm:vertexremoved', refresh);
+    refresh();
+}
 
 function initRulerGroup() {
     if (!rulerMarkersGroup && map) {
