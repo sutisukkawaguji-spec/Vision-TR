@@ -6265,23 +6265,23 @@ async function addTeamMemberByCode() {
             throw new Error('ไม่พบข้อมูลรหัสสมาชิกนี้ กรุณาตรวจสอบรหัสของเพื่อนคุณอีกครั้ง');
         }
 
-        // อัปเดต team_id ของเขาให้มาเป็นทีมเรา
-        const { error: updErr } = await supabaseClient
-            .from('profiles')
-            .update({ team_id: currentUser.team_id })
-            .eq('id', member.id);
-
+        // This RPC has the narrowly scoped server-side permission needed to
+        // update another user's team_id while RLS remains enabled.
+        const { data: joinedRows, error: updErr } = await supabaseClient
+            .rpc('add_team_member_by_code', { member_code: code });
         if (updErr) throw updErr;
+        const joinedMember = Array.isArray(joinedRows) ? joinedRows[0] : joinedRows;
+        if (!joinedMember?.id) throw new Error('เพิ่มสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
 
         document.getElementById('inp-add-member-code').value = '';
-        Swal.fire('สำเร็จ', `เพิ่มคุณ ${member.display_name} เข้าทีมสำรวจร่วมกันแล้ว`, 'success');
+        Swal.fire('สำเร็จ', `เพิ่มคุณ ${joinedMember.display_name || member.display_name} เข้าทีมสำรวจร่วมกันแล้ว`, 'success');
         await loadTeamMembers();
         // Render immediately even if the profiles read is still catching up after
         // the team-id update, so the owner can see the successful addition now.
         const listEl = document.getElementById('team-members-list');
         if (listEl && !listEl.querySelector(`[data-team-member-id="${member.id}"]`)) {
             listEl.querySelectorAll('.team-empty-state').forEach(el => el.remove());
-            const shown = { ...member, email: '' };
+            const shown = joinedMember;
             listEl.insertAdjacentHTML('beforeend', `<div data-team-member-id="${shown.id}" class="flex items-center justify-between p-2 border border-gray-100 rounded-xl bg-gray-50/50"><div class="min-w-0"><div class="text-xs font-bold text-gray-850 truncate">${v2EscapeHtml(shown.display_name || 'ผู้ใช้ร่วมกัน')}</div><div class="text-[10px] text-gray-400 truncate">${v2EscapeHtml(shown.email || '')} (${v2EscapeHtml(shown.user_code || code)})</div></div><span class="text-[9px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">สมาชิกใหม่</span></div>`);
         }
     } catch (e) {
