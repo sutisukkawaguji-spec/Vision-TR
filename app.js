@@ -659,6 +659,7 @@ window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
 window.pendingNewShapes = [];
+const customDrawingGeometrySaveTimers = new Map();
 const newlyCreatedUnsavedJobIds = new Set();
 const OFFLINE_QUEUE_DB = 'vision-tr-offline-v1';
 let offlineQueueDbPromise = null;
@@ -3061,10 +3062,20 @@ function bindGeomanEvents(layer, jobId) {
         }
 
         // ดักจับเหตุการณ์การแก้ไข ย้าย และหมุน
-        l.on('pm:edit', () => { queueGeomanUpdate(l, jobId); showPendingActionsBar(); });
-        l.on('pm:dragend', () => { queueGeomanUpdate(l, jobId); showPendingActionsBar(); });
-        l.on('pm:rotateend', () => { queueGeomanUpdate(l, jobId); showPendingActionsBar(); });
-        l.on('pm:revert', () => { dequeueGeomanUpdate(jobId); showPendingActionsBar(); });
+        const keepGeometry = () => {
+            queueGeomanUpdate(l, jobId);
+            scheduleCustomDrawingGeometrySave(jobId);
+            showPendingActionsBar();
+        };
+        l.on('pm:edit', keepGeometry);
+        l.on('pm:dragend', keepGeometry);
+        l.on('pm:rotateend', keepGeometry);
+        l.on('pm:revert', () => {
+            clearTimeout(customDrawingGeometrySaveTimers.get(jobId));
+            customDrawingGeometrySaveTimers.delete(jobId);
+            dequeueGeomanUpdate(jobId);
+            showPendingActionsBar();
+        });
     };
 
     if (typeof layer.eachLayer === 'function') {
@@ -3562,6 +3573,30 @@ function ensureGeomanToolbarPositioning() {
         window.visualViewport.addEventListener('resize', scheduleGeomanToolbarPosition, { passive: true });
         window.visualViewport.addEventListener('scroll', scheduleGeomanToolbarPosition, { passive: true });
     }
+}
+
+// New standalone drawings are created in the database before the detail form
+// is completed. Save their geometry quietly after each Edit Layer adjustment,
+// so a map refresh can never replace an unfinished shape with its old outline.
+function scheduleCustomDrawingGeometrySave(jobId) {
+    const job = findJobById(jobId);
+    if (!job?.properties?.is_custom_draw) return;
+    clearTimeout(customDrawingGeometrySaveTimers.get(jobId));
+    customDrawingGeometrySaveTimers.set(jobId, setTimeout(async () => {
+        try {
+            const latestJob = findJobById(jobId);
+            if (!latestJob?.properties?.is_custom_draw) return;
+            await saveJobToSupabase(latestJob);
+            window.pendingGeomanUpdates.delete(jobId);
+            showPendingActionsBar();
+        } catch (error) {
+            // Keep the queued edit in memory; an explicit save or a later
+            // successful connection can retry it without losing the shape.
+            console.error('Custom drawing geometry auto-save error', error);
+        } finally {
+            customDrawingGeometrySaveTimers.delete(jobId);
+        }
+    }, 450));
 }
 
 function toggleGeomanToolbar(show) {
