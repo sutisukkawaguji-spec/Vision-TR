@@ -606,7 +606,7 @@ async function clearAllSupabaseJobs() {
 // --- Global State Variables ---
 let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
-let selectedJobId = null, lastSelectedJobId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
+let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
 let lastNavigationTarget = null;
@@ -1707,29 +1707,125 @@ function getSurveyFeatureGeometry(layer, shape) {
 }
 
 async function addSurveyFeatureToJob(job, feature) {
+    // A drawing inside a Base Map is deliberately not persisted yet.  It first
+    // receives its own survey record, so an accidental drawing can be cancelled
+    // without appearing in the parent's list.
+    return openSurveyFeatureEditor(job.id, null, feature);
+}
+
+function surveyFeatureFormHtml(feature) {
+    const form = getActiveSurveyForm();
+    const fields = Array.isArray(form?.fields) ? [...form.fields].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)) : [];
+    const values = feature?.form_data || {};
+    const fieldHtml = fields.map(field => {
+        const type = normalizeSurveyFieldType(field.type);
+        const value = values[field.key] ?? '';
+        const common = `data-feature-key="${v2EscapeHtml(field.key)}" class="feature-form-input swal2-input !m-0 !w-full"`;
+        if (type === 'textarea') return `<label class="text-xs font-bold">${v2EscapeHtml(field.label)}${field.required ? ' *' : ''}</label><textarea ${common} rows="3">${v2EscapeHtml(value)}</textarea>`;
+        if (type === 'checkbox') return `<label class="flex gap-2 text-xs font-bold"><input ${common} type="checkbox" ${value === true ? 'checked' : ''}>${v2EscapeHtml(field.label)}</label>`;
+        if (type === 'select' || type === 'multiselect') {
+            const selected = Array.isArray(value) ? value.map(String) : [String(value)];
+            const options = normalizeSurveyFieldOptions(field.options).filter(option => option.active || selected.includes(option.id))
+                .map(option => `<option value="${v2EscapeHtml(option.id)}" ${selected.includes(option.id) ? 'selected' : ''}>${v2EscapeHtml(option.label)}${option.active ? '' : ' (ค่าเดิม)'}</option>`).join('');
+            return `<label class="text-xs font-bold">${v2EscapeHtml(field.label)}${field.required ? ' *' : ''}</label><select ${common} ${type === 'multiselect' ? 'multiple size="4"' : ''}>${type === 'select' ? '<option value="">-- เลือก --</option>' : ''}${options}</select>`;
+        }
+        const inputType = type === 'datetime' ? 'datetime-local' : (['number', 'date', 'time'].includes(type) ? type : 'text');
+        return `<label class="text-xs font-bold">${v2EscapeHtml(field.label)}${field.required ? ' *' : ''}</label><input ${common} type="${inputType}" value="${v2EscapeHtml(value)}" placeholder="${v2EscapeHtml(field.placeholder || '')}">`;
+    }).join('<div class="h-1"></div>');
+    const photos = Array.isArray(feature?.images) ? feature.images : [];
+    const photoHtml = photos.map(image => {
+        const url = typeof image === 'string' ? image : image?.url;
+        return url ? `<img src="${v2EscapeHtml(url)}" class="w-16 h-16 object-cover rounded-lg border">` : '';
+    }).join('');
+    return `<div class="text-left space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+        <div class="rounded-xl bg-rose-50 border border-rose-100 p-2 text-xs text-rose-800"><i class="fa-solid fa-draw-polygon mr-1"></i> บันทึกข้อมูลของรูปวาดนี้แยกจากข้อมูลแปลงหลัก</div>
+        <label class="text-xs font-bold">ชื่อรายการรูปวาด</label><input id="feature-title" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(feature?.name || '')}" placeholder="เช่น จุดพบต้นปาล์ม">
+        ${fieldHtml}
+        <label class="text-xs font-bold">หมายเหตุ</label><textarea id="feature-note" class="swal2-textarea !m-0 !w-full" rows="3">${v2EscapeHtml(feature?.note || '')}</textarea>
+        <label class="text-xs font-bold">รูปถ่าย (ไม่เกิน 6 รูป)</label>
+        <div class="flex gap-2 flex-wrap">${photoHtml || '<span class="text-[10px] text-gray-400">ยังไม่มีรูป</span>'}</div>
+        <input id="feature-photo-input" type="file" accept="image/*" capture="environment" multiple class="block w-full text-xs">
+    </div>`;
+}
+
+async function uploadSurveyFeatureFiles(files) {
+    if (!files.length) return [];
+    if (!cloudinaryCloudName || !cloudinaryUploadPreset) throw new Error('กรุณาตั้งค่า Cloudinary ก่อนเพิ่มรูปถ่าย');
+    const uploaded = [];
+    for (const file of files) {
+        const compressed = await compressImage(file, 1000, 0.78);
+        const body = new FormData();
+        body.append('file', compressed);
+        body.append('upload_preset', cloudinaryUploadPreset);
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryCloudName}/image/upload`, { method: 'POST', body });
+        if (!response.ok) throw new Error('อัปโหลดรูปถ่ายไม่สำเร็จ');
+        const data = await response.json();
+        uploaded.push({ url: data.secure_url, public_id: data.public_id });
+    }
+    return uploaded;
+}
+
+async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = null) {
+    const job = findJobById(jobId);
+    if (!job) return;
+    const existing = featureId ? job.properties?.survey_features?.find(feature => feature.id === featureId) : null;
+    const feature = { ...(existing || draftFeature || {}), form_data: { ...(existing?.form_data || draftFeature?.form_data || {}) } };
+    const result = await Swal.fire({
+        title: existing ? 'แก้ไขรูปวาดในแปลง' : 'บันทึกรูปวาดในแปลง',
+        html: surveyFeatureFormHtml(feature),
+        width: 620,
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-floppy-disk"></i> บันทึกรูปวาด',
+        cancelButtonText: 'ยกเลิก',
+        allowOutsideClick: false,
+        preConfirm: () => {
+            const values = {};
+            const missing = [];
+            const fields = getActiveSurveyForm()?.fields || [];
+            document.querySelectorAll('.feature-form-input').forEach(input => {
+                values[input.dataset.featureKey] = input.type === 'checkbox' ? input.checked : input.multiple ? Array.from(input.selectedOptions).map(option => option.value) : input.type === 'number' ? (input.value === '' ? '' : Number(input.value)) : input.value;
+            });
+            fields.forEach(field => { const value = values[field.key]; if (field.required && (value === '' || value === undefined || (Array.isArray(value) && !value.length))) missing.push(field.label); });
+            if (missing.length) return Swal.showValidationMessage(`กรุณากรอก: ${missing.join(', ')}`);
+            return { name: document.getElementById('feature-title').value.trim(), note: document.getElementById('feature-note').value.trim(), values, files: Array.from(document.getElementById('feature-photo-input').files || []) };
+        }
+    });
+    if (!result.isConfirmed) return;
+    showLoading(true, 'กำลังบันทึกรูปวาด...');
     try {
         const current = Array.isArray(job.properties?.survey_features) ? job.properties.survey_features : [];
-        job.properties.survey_features = [...current, { ...feature, status: 'pending' }];
-        job.status = 'waiting';
-        job.properties.date = '';
+        const newImages = await uploadSurveyFeatureFiles(result.value.files.slice(0, Math.max(0, 6 - (feature.images || []).length)));
+        const savedFeature = {
+            ...feature,
+            id: feature.id || `survey_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: result.value.name || `รูปวาด ${current.length + 1}`,
+            note: result.value.note,
+            form_data: result.value.values,
+            form_version: getActiveSurveyForm()?.version || 0,
+            form_schema: getActiveSurveyForm()?.fields || [],
+            images: [...(feature.images || []), ...newImages],
+            status: 'done',
+            recorded_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+        job.properties.survey_features = existing ? current.map(item => item.id === featureId ? savedFeature : item) : [...current, savedFeature];
         await saveJobToSupabase(job);
         await syncJobsSilently();
         const refreshedJob = findJobById(job.id);
         Swal.fire({
             toast: true,
             position: 'top',
-            icon: 'info',
-            title: `เพิ่มรูปวาดในแปลง ${job.properties?.name || job.id}`,
-            text: 'กรอกรายละเอียดแล้วกดบันทึกเพื่อเปลี่ยนเป็นสีเขียว',
+            icon: 'success',
+            title: existing ? 'บันทึกการแก้ไขรูปวาดแล้ว' : 'บันทึกรูปวาดในแปลงแล้ว',
             timer: 2600,
             showConfirmButton: false
         });
-        if (refreshedJob) openSheet(refreshedJob);
+        if (refreshedJob) { selectedSurveyFeatureId = savedFeature.id; openSheet(refreshedJob); focusSurveyFeature(job.id, savedFeature.id, false); }
     } catch (error) {
         console.error('Survey feature save error', error);
         renderMap(false);
         Swal.fire('บันทึกรูปวาดไม่สำเร็จ', error.message, 'error');
-    }
+    } finally { showLoading(false); }
 }
 
 async function saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, isCircle, areaSqm }) {
@@ -1834,30 +1930,54 @@ function renderSurveyFeatureList(job) {
     list.innerHTML = features.map((feature, index) => {
         const label = labels[feature.shape] || feature.shape || 'รูปวาด';
         const status = feature.status === 'done' ? 'สำรวจแล้ว' : 'รอตรวจ';
-        return `<div class="flex items-center gap-2 rounded-xl bg-white border border-rose-100 px-3 py-2">
+        return `<div class="flex items-center gap-2 rounded-xl bg-white border ${selectedSurveyFeatureId === feature.id ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-100'} px-3 py-2">
             <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-bold">${index + 1}</span>
             <button type="button" onclick="focusSurveyFeature('${job.id}', '${feature.id}')" class="min-w-0 flex-1 text-left">
-                <span class="block text-xs font-bold text-slate-700">${label}</span>
-                <span class="block text-[10px] text-slate-500">${status} · แตะเพื่อเลือกบนแผนที่</span>
+                <span class="block text-xs font-bold text-slate-700">${v2EscapeHtml(feature.name || label)}</span>
+                <span class="block text-[10px] text-slate-500">${label} · ${status} · รูป ${(feature.images || []).length}</span>
             </button>
+            <button type="button" onclick="openSurveyFeatureEditor('${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-blue-600 hover:bg-blue-50" title="แก้ไขรูปวาดนี้" aria-label="แก้ไขรูปวาดนี้"><i class="fa-solid fa-pen"></i></button>
             <button type="button" onclick="deleteSurveyFeatureFromSheet(event, '${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-rose-500 hover:bg-rose-50" title="ลบรูปวาดนี้" aria-label="ลบรูปวาดนี้"><i class="fa-solid fa-trash"></i></button>
         </div>`;
     }).join('');
 }
 
-function focusSurveyFeature(jobId, featureId) {
+function focusSurveyFeature(jobId, featureId, notify = true) {
     const job = findJobById(jobId);
     const feature = job?.properties?.survey_features?.find(item => item.id === featureId);
     if (!feature || !map) return;
     const featureLayer = markersGroup.getLayers().find(layer => layer.surveyFeatureId === featureId || layer.parentJobId === jobId && layer.surveyFeatureId === featureId);
+    selectedSurveyFeatureId = featureId;
     if (featureLayer?.bringToFront) featureLayer.bringToFront();
+    applySurveyFeatureSelection(featureLayer, true);
     if (featureLayer?.getBounds) {
         const bounds = featureLayer.getBounds();
         if (bounds?.isValid?.()) map.fitBounds(bounds, { padding: [80, 80], maxZoom: 18 });
     } else if (Number.isFinite(Number(feature.lat)) && Number.isFinite(Number(feature.lng))) {
         map.setView([Number(feature.lat), Number(feature.lng)], Math.max(map.getZoom(), 18));
     }
-    Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'เลือกรูปวาดแล้ว ใช้ปุ่มถังขยะเพื่อลบ', timer: 1800, showConfirmButton: false });
+    if (selectedJobId === jobId) renderSurveyFeatureList(job);
+    if (notify) Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'เลือกรูปวาดแล้ว กรอบบนแผนที่จะกระพริบ', timer: 1800, showConfirmButton: false });
+}
+
+function applySurveyFeatureSelection(layer, blink = false) {
+    const targets = [];
+    if (layer) {
+        targets.push(layer);
+        if (typeof layer.eachLayer === 'function') layer.eachLayer(child => targets.push(child));
+    }
+    markersGroup?.getLayers?.().forEach(item => {
+        if (!item.surveyFeatureId && typeof item.eachLayer === 'function') item.eachLayer(child => targets.push(child));
+    });
+    targets.forEach(target => {
+        const el = target.getElement?.();
+        if (!el) return;
+        el.classList.remove('survey-feature-selected');
+        if (target.surveyFeatureId === selectedSurveyFeatureId && blink) {
+            void el.offsetWidth;
+            el.classList.add('survey-feature-selected');
+        }
+    });
 }
 
 async function deleteSurveyFeatureFromSheet(event, jobId, featureId) {
@@ -1932,12 +2052,13 @@ function createSurveyFeatureLayer(job, feature) {
             // click so the map click handler consumes it instead of closing the
             // sheet that is opened for the parent plot.
             markerJustClicked = true;
-            openSheet(findJobById(job.id) || job);
+            focusSurveyFeature(job.id, feature.id);
         });
     };
     bind(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(bind);
     layer.bindTooltip(`รูปวาดในแปลง: ${job.properties?.name || job.id}`, { direction: 'top' });
+    if (feature.id === selectedSurveyFeatureId) setTimeout(() => applySurveyFeatureSelection(layer, true), 0);
     return layer;
 }
 
@@ -5023,14 +5144,6 @@ async function saveData() {
         const hasImages = job.properties && job.properties.images && job.properties.images.length > 0;
         const hasNoteOrImages = hasNote || hasImages;
 
-        if (Array.isArray(job.properties?.survey_features)) {
-            job.properties.survey_features = job.properties.survey_features.map(feature => ({
-                ...feature,
-                status: 'done',
-                completed_at: new Date().toISOString()
-            }));
-        }
-
         if (isTemp) {
             // Generate a permanent ID
             const permanentId = 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -5289,6 +5402,57 @@ function toggleBaseMap() {
 }
 
 // --- Premium Settings Modal Logic ---
+function openDashboard() {
+    const screen = document.getElementById('dashboard-screen');
+    if (!screen) return;
+    screen.classList.remove('hidden');
+    renderDashboard();
+}
+
+function closeDashboard() { document.getElementById('dashboard-screen')?.classList.add('hidden'); }
+
+function renderDashboard() {
+    const container = document.getElementById('dashboard-content');
+    if (!container) return;
+    const form = getActiveSurveyForm();
+    const fields = (form?.fields || []).filter(field => ['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)));
+    const selectedKey = document.getElementById('dashboard-group-field')?.value || fields[0]?.key || '';
+    const selectedField = fields.find(field => field.key === selectedKey);
+    const features = dbJobs.flatMap(job => (job.properties?.survey_features || []).map(feature => ({ ...feature, parentName: job.properties?.name || job.id, parentId: job.id })))
+        .filter(feature => feature.status === 'done');
+    const counts = new Map();
+    if (selectedField) {
+        features.forEach(feature => {
+            const values = Array.isArray(feature.form_data?.[selectedKey]) ? feature.form_data[selectedKey] : [feature.form_data?.[selectedKey]];
+            values.filter(value => value !== undefined && value !== null && value !== '').forEach(value => {
+                const label = surveyOptionLabel(selectedField, value);
+                counts.set(label, (counts.get(label) || 0) + 1);
+            });
+        });
+    }
+    const max = Math.max(1, ...counts.values());
+    const photoCount = features.reduce((sum, feature) => sum + (feature.images || []).length, 0);
+    const cards = `<div class="grid grid-cols-3 gap-2 mb-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปวาดที่สำรวจ</p><p class="text-2xl font-black text-slate-800">${features.length}</p></div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">แปลงที่มีผล</p><p class="text-2xl font-black text-slate-800">${new Set(features.map(feature => feature.parentId)).size}</p></div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปถ่าย</p><p class="text-2xl font-black text-slate-800">${photoCount}</p></div></div>`;
+    const selector = fields.length ? `<label class="block text-xs font-bold text-slate-600 mb-2">สรุปตาม Dropdown</label><select id="dashboard-group-field" onchange="renderDashboard()" class="w-full p-3 rounded-xl border border-slate-200 bg-white mb-3">${fields.map(field => `<option value="${v2EscapeHtml(field.key)}" ${field.key === selectedKey ? 'selected' : ''}>${v2EscapeHtml(field.label)}</option>`).join('')}</select>` : '<div class="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800">ยังไม่มี Dropdown ในแบบฟอร์มกลุ่มงานนี้ กรุณาเพิ่มช่องประเภท Dropdown ก่อน</div>';
+    const bars = counts.size ? Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => `<button onclick='dashboardFocusCategory(${JSON.stringify(selectedKey)},${JSON.stringify(label)})' class="w-full text-left mb-3"><div class="flex justify-between text-xs font-bold text-slate-700 mb-1"><span>${v2EscapeHtml(label)}</span><span>${count}</span></div><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:${(count / max) * 100}%"></div></div></button>`).join('') : '<div class="text-center text-sm text-slate-400 py-8">ยังไม่มีผลสำรวจที่มีค่าจาก Dropdown นี้</div>';
+    container.innerHTML = `${cards}<div class="bg-white rounded-2xl border border-slate-200 p-4">${selector}<h2 class="font-bold text-slate-800 mb-4">กราฟจำนวนผลสำรวจ</h2>${bars}</div>`;
+}
+
+function dashboardFocusCategory(fieldKey, label) {
+    const field = (getActiveSurveyForm()?.fields || []).find(item => item.key === fieldKey);
+    const feature = dbJobs.flatMap(job => (job.properties?.survey_features || []).map(item => ({ job, item }))).find(({ item }) => {
+        const values = Array.isArray(item.form_data?.[fieldKey]) ? item.form_data[fieldKey] : [item.form_data?.[fieldKey]];
+        return values.some(value => surveyOptionLabel(field, value) === label);
+    });
+    if (!feature) return;
+    closeDashboard();
+    openSheet(feature.job);
+    focusSurveyFeature(feature.job.id, feature.item.id);
+}
+
 function openToolsMenu() {
     const modal = document.getElementById('custom-settings-modal');
     modal.classList.add('active');

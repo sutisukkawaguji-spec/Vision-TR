@@ -452,6 +452,15 @@
             margin-left: 5px;
         }
 
+        .survey-feature-selected {
+            animation: survey-feature-pulse 1s ease-in-out 3;
+            stroke: #f59e0b !important;
+            stroke-width: 7px !important;
+            filter: drop-shadow(0 0 5px rgba(245, 158, 11, .95));
+        }
+        @keyframes survey-feature-pulse { 50% { opacity: .25; stroke-width: 11px; } }
+        #dashboard-screen { position: fixed; inset: 0; z-index: 5000; background: #f8fafc; overflow-y: auto; }
+
         .fab-col {
             position: absolute;
             bottom: calc(30px + var(--safe-bottom));
@@ -1378,10 +1387,11 @@
 
     <div id="top-bar">
         <div class="top-row px-1 mb-2">
-            <div id="status-bar" onclick="openToolsMenu()">
+            <div id="status-bar" onclick="openDashboard()" title="เปิด Dashboard สรุปผลสำรวจ">
                 <i class="fa-solid fa-user-gear" style="color: #2563eb;"></i>
                 <span id="user-display">ตั้งค่า</span>
                 <span id="job-counter">0/0</span>
+                <i class="fa-solid fa-chart-column text-emerald-600"></i>
             </div>
 
             <div class="control-btn-group">
@@ -2254,6 +2264,15 @@
             <button onclick="saveAllPendingChanges()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95">เสร็จสิ้น</button>
         </div>
     </div>
+    <section id="dashboard-screen" class="hidden p-4 pb-10">
+        <div class="max-w-3xl mx-auto space-y-4">
+            <div class="flex items-center justify-between pt-2">
+                <div><p class="text-xs font-bold text-emerald-600">VISION TR</p><h1 class="text-xl font-black text-slate-800">Dashboard สรุปผลสำรวจ</h1></div>
+                <button onclick="closeDashboard()" class="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="dashboard-content"></div>
+        </div>
+    </section>
 
     <script>
         if (['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
