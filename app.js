@@ -1056,20 +1056,27 @@ function initApp() {
 
         // Show side-by-side dimensions while a new polygon or rectangle is
         // being drawn. These are temporary measurement labels only.
+        map.on('pm:drawstart', () => {
+            clearDrawingMeasurements(true);
+        });
         map.on('pm:drawstart', watchDrawingMeasurements);
-        map.on('pm:drawend', () => setTimeout(clearDrawingMeasurements, 0));
+        map.on('pm:drawend', () => setTimeout(() => clearDrawingMeasurements(false), 0));
 
         map.on('pm:create', async (e) => {
-            clearDrawingMeasurements();
             const layer = e.layer;
             const shape = e.shape; // 'Marker', 'Rectangle', 'Polygon', 'Circle'
 
             if (!isSurveyShapeAllowed(shape)) {
+                clearDrawingMeasurements(true);
                 if (map.hasLayer(layer)) map.removeLayer(layer);
                 const requiredType = getActiveSurveyLayerSettings().type === 'point' ? 'Point' : 'Polygon';
                 Swal.fire('ชนิดเลเยอร์ไม่ตรงกับแบบฟอร์ม', `แบบฟอร์มนี้กำหนดให้สำรวจเป็น ${requiredType} เท่านั้น`, 'warning');
                 return;
             }
+
+            // Once the shape has been completed, keep its dimensions on the
+            // map while the user fills in the save form.
+            pinCompletedDrawingMeasurements(layer, shape);
 
             let geometry = {};
             let lat = 0;
@@ -1958,6 +1965,7 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
         job.properties.survey_features = existing ? current.map(item => item.id === featureId ? savedFeature : item) : [...current, savedFeature];
         await saveJobToSupabase(job);
         await syncJobsSilently();
+        clearDrawingMeasurements();
         const refreshedJob = findJobById(job.id);
         Swal.fire({
             toast: true,
@@ -3217,14 +3225,17 @@ let rulerHintLine = null;
 let rulerIsClosed = false;
 let drawingMeasureGroup = null;
 let drawingMeasureLayer = null;
+let drawingMeasurePinned = false;
 
 function initDrawingMeasureGroup() {
     if (!drawingMeasureGroup && map) drawingMeasureGroup = L.layerGroup().addTo(map);
 }
 
-function clearDrawingMeasurements() {
+function clearDrawingMeasurements(force = true) {
+    if (drawingMeasurePinned && !force) return;
     drawingMeasureGroup?.clearLayers();
     drawingMeasureLayer = null;
+    drawingMeasurePinned = false;
 }
 
 function getDrawingMeasurePoints(layer) {
@@ -3246,16 +3257,13 @@ function addMapSideLabel(group, from, to) {
     }).addTo(group).openTooltip();
 }
 
-function renderDrawingMeasurements(layer, shape) {
+function renderDrawingMeasurements(layer, shape, isClosed = false) {
     if (!layer || !['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
     initDrawingMeasureGroup();
     drawingMeasureGroup.clearLayers();
     const points = getDrawingMeasurePoints(layer);
     if (points.length < 2) return;
     for (let index = 1; index < points.length; index++) addMapSideLabel(drawingMeasureGroup, points[index - 1], points[index]);
-    // Rectangles are closed as soon as the opposite corner is dragged. A
-    // polygon becomes a closed shape after its third vertex is placed.
-    const isClosed = shape === 'Rectangle' || points.length >= 3;
     if (!isClosed) return;
     addMapSideLabel(drawingMeasureGroup, points[points.length - 1], points[0]);
     const area = calculatePolygonArea(points);
@@ -3276,9 +3284,16 @@ function watchDrawingMeasurements(event) {
     const layer = event?.workingLayer;
     if (!layer || !['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
     drawingMeasureLayer = layer;
-    const refresh = () => renderDrawingMeasurements(layer, shape);
+    drawingMeasurePinned = false;
+    const refresh = () => renderDrawingMeasurements(layer, shape, false);
     layer.on('pm:change pm:vertexadded pm:vertexremoved', refresh);
     refresh();
+}
+
+function pinCompletedDrawingMeasurements(layer, shape) {
+    if (!['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
+    drawingMeasurePinned = true;
+    renderDrawingMeasurements(layer, shape, true);
 }
 
 function initThreePointRectanglePreview() {
@@ -5645,6 +5660,7 @@ async function saveData() {
             closeSheet();
         }
 
+        if (job.properties?.is_custom_draw) clearDrawingMeasurements();
         Swal.fire({ toast: true, icon: 'success', title: 'บันทึกข้อมูลเรียบร้อย', timer: 1500, showConfirmButton: false });
     } catch (e) {
         console.error("Save Data Error:", e);
