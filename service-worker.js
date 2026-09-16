@@ -1,7 +1,8 @@
-const CACHE_NAME = 'vision-tr-v3';
+const CACHE_NAME = 'vision-tr-v4';
+const APP_SHELL = ['./', './index.html', './app.js?v=3.3.8', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
 
 self.addEventListener('install', (event) => {
-    self.skipWaiting();
+    event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all(APP_SHELL.map(url => cache.add(url).catch(() => null)))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -22,8 +23,18 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     const url = new URL(event.request.url);
     if (url.protocol === 'chrome-extension:' || url.hostname.includes('supabase.co')) return;
+    const isMapTile = url.hostname === 'mt1.google.com';
+    const isAppAsset = url.origin === self.location.origin;
+    const isStaticRemote = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'cdn.tailwindcss.com', 'cdn.jsdelivr.net', 'unpkg.com'].includes(url.hostname);
+    if (!isMapTile && !isAppAsset && !isStaticRemote) return;
 
     event.respondWith(
-        fetch(event.request).catch(() => caches.match(event.request))
+        caches.match(event.request).then(cached => {
+            const fresh = fetch(event.request).then(response => {
+                if (response && (response.ok || response.type === 'opaque')) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+                return response;
+            }).catch(() => cached);
+            return cached || fresh;
+        })
     );
 });

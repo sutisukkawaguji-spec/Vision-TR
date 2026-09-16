@@ -344,6 +344,17 @@ async function checkAuthSession() {
 }
 
 async function loadUserProfileAndData(authUser) {
+    if (!navigator.onLine) {
+        try {
+            const cachedUser = JSON.parse(localStorage.getItem('vision-tr-offline-user') || 'null');
+            if (cachedUser?.id === authUser.id) {
+                currentUser = cachedUser;
+                updateUserInfo();
+                showAuthOverlay(false);
+                if (restoreOfflineMapSnapshot()) return;
+            }
+        } catch (error) { console.warn('Offline profile unavailable', error); }
+    }
     let profile = null;
     // ดึงข้อมูลโปรไฟล์ (และวนเช็คซ้ำเนื่องจากระบบ Database Trigger อาจจะบันทึกช้ากว่าเศษเสี้ยววินาที)
     for (let i = 0; i < 4; i++) {
@@ -364,6 +375,7 @@ async function loadUserProfileAndData(authUser) {
             team_id: profile.team_id,
             category: localStorage.getItem('survey_current_cat') || 'ทั่วไป'
         };
+        try { localStorage.setItem('vision-tr-offline-user', JSON.stringify(currentUser)); } catch (error) { }
 
         updateUserInfo();
         showAuthOverlay(false);
@@ -647,6 +659,124 @@ window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
 window.pendingNewShapes = [];
 const newlyCreatedUnsavedJobIds = new Set();
+const OFFLINE_QUEUE_DB = 'vision-tr-offline-v1';
+let offlineQueueDbPromise = null;
+let isFlushingOfflineQueue = false;
+
+function getOfflineQueueDb() {
+    if (offlineQueueDbPromise) return offlineQueueDbPromise;
+    offlineQueueDbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(OFFLINE_QUEUE_DB, 1);
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains('pending_saves')) db.createObjectStore('pending_saves', { keyPath: 'id', autoIncrement: true });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    return offlineQueueDbPromise;
+}
+
+async function getOfflineQueueItems() {
+    const db = await getOfflineQueueDb();
+    return new Promise((resolve, reject) => {
+        const request = db.transaction('pending_saves', 'readonly').objectStore('pending_saves').getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function refreshOfflineQueueIndicator() {
+    const button = document.getElementById('offline-queue-indicator');
+    const countEl = document.getElementById('offline-queue-count');
+    if (!button || !countEl) return;
+    try {
+        const count = (await getOfflineQueueItems()).length;
+        countEl.textContent = count;
+        button.classList.toggle('hidden', count === 0);
+        button.title = `มีข้อมูลรอส่ง ${count} รายการ${navigator.onLine ? ' · แตะเพื่อลองส่ง' : ' · กำลังทำงานออฟไลน์'}`;
+    } catch (error) { console.warn('Offline queue unavailable', error); }
+}
+
+async function queueOfflineSave(job) {
+    const db = await getOfflineQueueDb();
+    const safeJob = {
+        id: job.id, team_id: job.team_id, lat: job.lat, lng: job.lng, geometry: job.geometry,
+        status: job.status, category: job.category, properties: { ...(job.properties || {}) }
+    };
+    return new Promise((resolve, reject) => {
+        const request = db.transaction('pending_saves', 'readwrite').objectStore('pending_saves').add({
+            created_at: new Date().toISOString(), user_id: currentUser?.id || '', job: safeJob
+        });
+        request.onsuccess = async () => { await refreshOfflineQueueIndicator(); resolve(); };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function removeOfflineQueueItem(id) {
+    const db = await getOfflineQueueDb();
+    await new Promise((resolve, reject) => {
+        const request = db.transaction('pending_saves', 'readwrite').objectStore('pending_saves').delete(id);
+        request.onsuccess = resolve;
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function uploadQueuedImages(job) {
+    const images = job.properties?.images || [];
+    for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+        if (!image?.isTemp || !image.file) continue;
+        const formData = new FormData();
+        formData.append('file', image.file);
+        formData.append('upload_preset', cloudinaryUploadPreset);
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryCloudName}/image/upload`, { method: 'POST', body: formData });
+        if (!response.ok) throw new Error('อัปโหลดภาพไปยังคลาวด์ล้มเหลว');
+        const uploaded = await response.json();
+        images[i] = { url: uploaded.secure_url, public_id: uploaded.public_id, delete_token: uploaded.delete_token, uploadedAt: Date.now() };
+    }
+}
+
+async function flushOfflineQueue() {
+    if (!navigator.onLine || isFlushingOfflineQueue || !supabaseClient || !currentUser?.id) return;
+    isFlushingOfflineQueue = true;
+    try {
+        const items = (await getOfflineQueueItems()).filter(item => !item.user_id || item.user_id === currentUser.id);
+        for (const item of items) {
+            await uploadQueuedImages(item.job);
+            await saveJobToSupabase(item.job);
+            await removeOfflineQueueItem(item.id);
+        }
+        if (items.length) {
+            await syncJobsSilently();
+            Swal.fire({ toast: true, position: 'top', icon: 'success', title: `ส่งข้อมูลที่รอคิวแล้ว ${items.length} รายการ`, timer: 2400, showConfirmButton: false });
+        }
+    } catch (error) { console.warn('Offline queue sync paused', error); }
+    finally { isFlushingOfflineQueue = false; await refreshOfflineQueueIndicator(); }
+}
+
+window.flushOfflineQueue = flushOfflineQueue;
+window.addEventListener('online', () => flushOfflineQueue());
+window.addEventListener('offline', () => refreshOfflineQueueIndicator());
+
+function saveOfflineMapSnapshot() {
+    try {
+        const snapshot = JSON.stringify({ user_id: currentUser?.id, saved_at: new Date().toISOString(), jobs: dbJobs, categories });
+        if (snapshot.length < 4 * 1024 * 1024) localStorage.setItem('vision-tr-map-snapshot', snapshot);
+    } catch (error) { console.warn('Map snapshot skipped', error); }
+}
+
+function restoreOfflineMapSnapshot() {
+    try {
+        const snapshot = JSON.parse(localStorage.getItem('vision-tr-map-snapshot') || 'null');
+        if (!snapshot || snapshot.user_id !== currentUser?.id || !Array.isArray(snapshot.jobs)) return false;
+        dbJobs = snapshot.jobs;
+        if (Array.isArray(snapshot.categories)) categories = snapshot.categories;
+        updateUserInfo();
+        renderMap(true);
+        return true;
+    } catch (error) { console.warn('Offline map snapshot unavailable', error); return false; }
+}
 
 // --- Helper functions for hand-drawn shapes and area calculations ---
 
@@ -775,6 +905,8 @@ async function startApp() {
     initApp();
     prefillRememberMe();
     await checkAuthSession();
+    refreshOfflineQueueIndicator();
+    flushOfflineQueue();
 
     // เริ่ม Polling ข้อมูลในทีมเงียบ ๆ ทุก 10 วินาที
     setInterval(syncJobsSilently, 10000);
@@ -5113,6 +5245,33 @@ async function saveData() {
 
     if (isNavigating) await stopNav(selectedJobId);
 
+    const nameVal = document.getElementById('sheet-name').value;
+    const noteVal = document.getElementById('sheet-note').value;
+    const isTemp = job.properties && job.properties.is_temp === true;
+    if (!navigator.onLine) {
+        const queuedJob = isTemp ? {
+            id: 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9), team_id: currentUser.team_id,
+            lat: job.lat, lng: job.lng, geometry: job.geometry, status: 'done', category: currentUser.category,
+            properties: { ...job.properties, name: nameVal || 'แปลงวาดใหม่', note: noteVal || '', date: new Date().toISOString().split('T')[0], is_custom_draw: true, is_temp: false }
+        } : {
+            id: job.id, team_id: job.team_id, lat: job.lat, lng: job.lng, geometry: job.geometry, status: 'done', category: job.category,
+            properties: { ...job.properties, name: nameVal, note: noteVal, date: new Date().toISOString().split('T')[0], navigator_id: null, navigator_name: null }
+        };
+        await queueOfflineSave(queuedJob);
+        if (isTemp) {
+            const newShapeIndex = window.pendingNewShapes.findIndex(item => item.id === job.id);
+            if (newShapeIndex !== -1) window.pendingNewShapes.splice(newShapeIndex, 1);
+            window.pendingGeomanUpdates.delete(job.id);
+            if (job.layer && map) map.removeLayer(job.layer);
+        } else {
+            job.status = 'done';
+            job.properties = queuedJob.properties;
+        }
+        renderMap(); closeSheet();
+        Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'บันทึกไว้ในเครื่องแล้ว รอส่งเมื่อออนไลน์', timer: 2600, showConfirmButton: false });
+        return;
+    }
+
     showLoading(true, 'กำลังอัปโหลดรูปภาพและบันทึกข้อมูล...');
     try {
         // --- ส่วนที่ 1: ตรวจสอบและอัปโหลดรูปภาพใหม่ (ที่มีสถานะ isTemp) ---
@@ -5156,9 +5315,6 @@ async function saveData() {
         }
 
         // --- ส่วนที่ 2: บันทึกข้อมูลข้อความลงฐานข้อมูล Supabase ---
-        const isTemp = job.properties && job.properties.is_temp === true;
-        const nameVal = document.getElementById('sheet-name').value;
-        const noteVal = document.getElementById('sheet-note').value;
         const hasNote = noteVal && noteVal.trim() !== "";
         const hasImages = job.properties && job.properties.images && job.properties.images.length > 0;
         const hasNoteOrImages = hasNote || hasImages;
@@ -7600,6 +7756,7 @@ syncJobsFromDB = async function (fitBounds = false) {
         if (error) throw error;
         v2PlotRecords = records || [];
         dbJobs = v2ComposeJobs();
+        saveOfflineMapSnapshot();
         categories = v2WorkGroups.map(group => group.name);
         if (!categories.includes(v2ActiveWorkGroup.name)) categories.push(v2ActiveWorkGroup.name);
         updateUserInfo();
@@ -7608,7 +7765,11 @@ syncJobsFromDB = async function (fitBounds = false) {
         renderMap(fitBounds);
     } catch (error) {
         console.error('V2 data sync error', error);
-        Swal.fire('โหลดข้อมูลไม่สำเร็จ', error.message, 'error');
+        if (!navigator.onLine && restoreOfflineMapSnapshot()) {
+            Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'กำลังใช้ข้อมูลแผนที่ที่บันทึกไว้ในเครื่อง', timer: 2400, showConfirmButton: false });
+        } else {
+            Swal.fire('โหลดข้อมูลไม่สำเร็จ', error.message, 'error');
+        }
     } finally {
         showLoading(false);
     }
