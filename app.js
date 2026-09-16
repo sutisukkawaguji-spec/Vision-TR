@@ -619,7 +619,7 @@ async function clearAllSupabaseJobs() {
 let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
-let selectedPlotSearchJobId = null, plotSearchFocusLayer = null, plotSearchPulseTimer = null;
+let selectedPlotSearchJobId = null, plotSearchFocusLayer = null, plotSearchPulseTimer = null, restoreSearchAfterSheet = false;
 let dashboardProfiles = [], dashboardState = { year: 'all', graph: 'bar', fieldKey: '' };
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
@@ -4678,6 +4678,11 @@ function enableEdit() {
 async function closeSheet(e) {
     if (e) e.stopPropagation();
 
+    // Only the explicit close button returns to a search list opened from its
+    // “details” action. Map taps and save flows keep their existing behavior.
+    const shouldRestoreSearch = Boolean(e && restoreSearchAfterSheet);
+    restoreSearchAfterSheet = false;
+
     const closingJobId = selectedJobId;
     const shouldDiscardNewDrawing = Boolean(
         e && closingJobId && newlyCreatedUnsavedJobIds.has(closingJobId)
@@ -4746,6 +4751,13 @@ async function closeSheet(e) {
             justDeletedJobId = null;
             isMapClickBlocked = false;
         }
+    }
+
+    if (shouldRestoreSearch) {
+        window.setTimeout(() => {
+            const input = document.getElementById('inp-search');
+            if (input?.value.trim()) doSearch();
+        }, 120);
     }
 }
 
@@ -7240,11 +7252,13 @@ function openSheetFromSearch(id) { previewPlotFromSearch(id); }
 function openSelectedPlotSearchDetails() {
     const job = findJobById(selectedPlotSearchJobId);
     if (!job) return;
+    restoreSearchAfterSheet = true;
     openSheet(job);
     document.getElementById('search-results')?.classList.remove('active');
 }
 
 function closePlotSearchResults() {
+    restoreSearchAfterSheet = false;
     document.getElementById('search-results')?.classList.remove('active');
     document.getElementById('inp-search')?.blur();
 }
