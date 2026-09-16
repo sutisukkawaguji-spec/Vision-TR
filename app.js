@@ -620,6 +620,7 @@ let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
 let selectedPlotSearchJobId = null, plotSearchFocusLayer = null, plotSearchPulseTimer = null, restoreSearchAfterSheet = false;
+let selectedPlaceSearchIndex = null;
 let dashboardProfiles = [], dashboardState = { year: 'all', graph: 'bar', fieldKey: '' };
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
@@ -8305,7 +8306,9 @@ async function searchMapPlaces(query) {
         }));
 }
 
-async function selectPlaceSearchResult(index) {
+async function selectPlaceSearchResult(index, event) {
+    // The list stays on screen after previewing a place, just like plot search.
+    event?.stopPropagation();
     const place = window.currentPlaceSearchResults?.[index];
     if (!place) return;
     if (place.placePrediction) {
@@ -8323,9 +8326,11 @@ async function selectPlaceSearchResult(index) {
         }
     }
     if (!Number.isFinite(Number(place.lat)) || !Number.isFinite(Number(place.lng))) return;
-    document.getElementById('search-results')?.classList.remove('active');
-    document.getElementById('inp-search').value = place.name || place.address || '';
-    map.flyTo([place.lat, place.lng], Math.max(map.getZoom(), 16));
+    selectedPlaceSearchIndex = index;
+    document.querySelectorAll('#search-results [data-place-index]').forEach(item => {
+        item.classList.toggle('plot-search-selected', Number(item.dataset.placeIndex) === index);
+    });
+    flyToSearchPreview(null, L.latLng(place.lat, place.lng));
     showPlaceSearchPreview(L.latLng(place.lat, place.lng), place.name);
 }
 
@@ -8346,6 +8351,7 @@ doSearch = async function () {
         // A search-preview marker is temporary. Starting another place search
         // clears it unless the user explicitly converted it to a travel pin.
         removePlaceSearchPreview();
+        selectedPlaceSearchIndex = null;
         const requestId = ++placeSearchRequestId;
         results.innerHTML = '<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-1"></i> กำลังค้นหาสถานที่...</div>';
         results.classList.add('active');
@@ -8355,12 +8361,14 @@ doSearch = async function () {
             const places = await searchMapPlaces(search);
             if (requestId !== placeSearchRequestId) return;
             window.currentPlaceSearchResults = places;
-            results.innerHTML = places.length ? places.map((place, index) => `
-                <button type="button" class="w-full text-left p-3 border-b hover:bg-purple-50" onclick="selectPlaceSearchResult(${index})">
+            results.innerHTML = places.length ? `
+                <div class="sticky top-0 z-10 flex items-center justify-between bg-white border-b border-gray-100 px-3 py-2"><span class="text-[10px] font-bold text-gray-600"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>แตะรายการเพื่อแสดงหมุด</span><button type="button" onclick="closePlotSearchResults()" class="w-7 h-7 rounded-full text-gray-500 hover:bg-gray-100" aria-label="ปิดผลค้นหา"><i class="fa-solid fa-xmark"></i></button></div>
+                <div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${places.length} สถานที่ · เลื่อนเพื่อดูรายการอื่น</div>` + places.slice(0, 50).map((place, index) => `
+                <button type="button" data-place-index="${index}" class="w-full text-left p-3 border-b hover:bg-purple-50" onclick="selectPlaceSearchResult(${index}, event)">
                     <div class="text-sm font-bold text-gray-800"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>${v2EscapeHtml(place.name)}</div>
                     ${place.secondaryText ? `<div class="text-[10px] text-gray-500 mt-1">${v2EscapeHtml(place.secondaryText)}</div>` : ''}
                     <div class="text-[10px] text-red-500 mt-1"><i class="fab fa-google mr-1"></i>${v2EscapeHtml(place.source)} · แตะเพื่อแสดงตำแหน่งบนแผนที่</div>
-                </button>`).join('') : '<div class="p-3 text-xs text-gray-500">ไม่พบสถานที่ ลองระบุจังหวัดหรืออำเภอเพิ่ม</div>';
+                </button>`).join('') + '<div class="sticky bottom-0 bg-white/95 border-t border-gray-100 px-3 py-2 text-center text-[10px] text-gray-400 backdrop-blur">แตะหมุดบนแผนที่เพื่อปักหมุดหรือนำทาง</div>' : '<div class="p-3 text-xs text-gray-500">ไม่พบสถานที่ ลองระบุจังหวัดหรืออำเภอเพิ่ม</div>';
             results.classList.add('active');
         } catch (error) {
             if (requestId !== placeSearchRequestId) return;
