@@ -15,9 +15,9 @@ begin
     raise exception 'เฉพาะหัวหน้าทีมเท่านั้นที่เพิ่มสมาชิกได้';
   end if;
 
-  select * into member_profile
-  from public.profiles
-  where lower(user_code) = lower(trim(member_code));
+  select p.* into member_profile
+  from public.profiles p
+  where lower(p.user_code) = lower(trim(member_code));
   if member_profile.id is null then
     raise exception 'ไม่พบรหัสสมาชิกนี้';
   end if;
@@ -25,10 +25,10 @@ begin
     raise exception 'ไม่สามารถเพิ่มตนเองเข้าทีมได้';
   end if;
 
-  update public.profiles
+  update public.profiles as p
   set team_id = caller_profile.team_id, updated_at = now()
-  where profiles.id = member_profile.id
-  returning profiles.id, profiles.email, profiles.display_name, profiles.user_code
+  where p.id = member_profile.id
+  returning p.id, p.email, p.display_name, p.user_code
   into id, email, display_name, user_code;
   return next;
 end;
