@@ -949,8 +949,7 @@ function initApp() {
             markerJustClicked = false;
             return;
         }
-        const res = document.getElementById('search-results');
-        if (res) res.classList.remove('active');
+        closePlotSearchResults();
         if (!isNavigating && selectedJobId) {
             closeSheet();
         }
@@ -1227,9 +1226,9 @@ async function setManualTravelPin(latlng, name = 'หมุดที่ปัก
         pmIgnore: true,
         icon: L.divIcon({
             className: '',
-            html: '<div style="width:40px;height:48px;display:flex;align-items:flex-start;justify-content:center;filter:drop-shadow(0 3px 3px rgba(0,0,0,.4));"><i class="fa-solid fa-location-dot" style="font-size:44px;line-height:44px;color:#7c3aed;-webkit-text-stroke:2px white;"></i></div>',
-            iconSize: [40, 48],
-            iconAnchor: [20, 44],
+            html: '<div style="position:relative;width:48px;height:52px;display:flex;align-items:flex-start;justify-content:center;filter:drop-shadow(0 3px 3px rgba(0,0,0,.4));"><i class="fa-solid fa-location-dot" style="font-size:44px;line-height:44px;color:#7c3aed;-webkit-text-stroke:2px white;"></i><button type="button" onclick="dismissManualTravelPin(event)" aria-label="ลบหมุดเดินทาง" title="ลบหมุดเดินทาง" style="position:absolute;right:0;top:-5px;width:19px;height:19px;border:2px solid #fff;border-radius:50%;background:#ef4444;color:#fff;font-size:11px;font-weight:bold;line-height:14px;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.4);">×</button></div>',
+            iconSize: [48, 52],
+            iconAnchor: [24, 44],
             popupAnchor: [0, -44]
         })
     }).addTo(map).bindTooltip(name, { permanent: false, direction: 'top' });
@@ -1838,6 +1837,14 @@ async function addSurveyFeatureToJob(job, feature) {
     // without appearing in the parent's list.
     return openSurveyFeatureEditor(job.id, null, feature);
 }
+
+async function dismissManualTravelPin(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (isNavigating && activeNavigationTarget?.type === 'manual') await stopNav();
+    removeManualTravelPin();
+}
+window.dismissManualTravelPin = dismissManualTravelPin;
 
 function surveyFeatureFormHtml(feature) {
     const form = getActiveSurveyForm();
@@ -7262,6 +7269,8 @@ function closePlotSearchResults() {
     restoreSearchAfterSheet = false;
     document.getElementById('search-results')?.classList.remove('active');
     document.getElementById('inp-search')?.blur();
+    // A blue search-preview pin is only useful while its result list is open.
+    removePlaceSearchPreview();
 }
 window.previewPlotFromSearch = previewPlotFromSearch;
 window.openSelectedPlotSearchDetails = openSelectedPlotSearchDetails;
