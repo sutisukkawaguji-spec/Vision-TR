@@ -1024,10 +1024,13 @@
         }
 
         .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button.active,
-        .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button[aria-pressed="true"] {
-            background-color: #ef4444 !important;
-            border-color: #fca5a5 !important;
-            box-shadow: 0 8px 18px rgba(239, 68, 68, 0.34) !important;
+        .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button[aria-pressed="true"],
+        .leaflet-right .leaflet-pm-toolbar .button-container.active .leaflet-buttons-control-button,
+        .leaflet-right .leaflet-pm-toolbar .button-container[aria-pressed="true"] .leaflet-buttons-control-button {
+            background-color: #7c3aed !important;
+            color: #ffffff !important;
+            border-color: #c4b5fd !important;
+            box-shadow: 0 8px 18px rgba(124, 58, 237, 0.42), 0 0 0 3px rgba(167, 139, 250, 0.25) !important;
         }
 
         .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button.disabled,
@@ -1038,7 +1041,9 @@
         }
 
         .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button.active .control-icon,
-        .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button[aria-pressed="true"] .control-icon {
+        .leaflet-right .leaflet-pm-toolbar .leaflet-buttons-control-button[aria-pressed="true"] .control-icon,
+        .leaflet-right .leaflet-pm-toolbar .button-container.active .leaflet-buttons-control-button .control-icon,
+        .leaflet-right .leaflet-pm-toolbar .button-container[aria-pressed="true"] .leaflet-buttons-control-button .control-icon {
             filter: brightness(0) invert(1) !important;
         }
 
