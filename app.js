@@ -6266,12 +6266,10 @@ async function addTeamMemberByCode() {
         }
 
         // อัปเดต team_id ของเขาให้มาเป็นทีมเรา
-        const { data: updatedMember, error: updErr } = await supabaseClient
+        const { error: updErr } = await supabaseClient
             .from('profiles')
             .update({ team_id: currentUser.team_id })
-            .eq('id', member.id)
-            .select('id, email, display_name, user_code')
-            .single();
+            .eq('id', member.id);
 
         if (updErr) throw updErr;
 
@@ -6283,7 +6281,7 @@ async function addTeamMemberByCode() {
         const listEl = document.getElementById('team-members-list');
         if (listEl && !listEl.querySelector(`[data-team-member-id="${member.id}"]`)) {
             listEl.querySelectorAll('.team-empty-state').forEach(el => el.remove());
-            const shown = updatedMember || { ...member, email: '' };
+            const shown = { ...member, email: '' };
             listEl.insertAdjacentHTML('beforeend', `<div data-team-member-id="${shown.id}" class="flex items-center justify-between p-2 border border-gray-100 rounded-xl bg-gray-50/50"><div class="min-w-0"><div class="text-xs font-bold text-gray-850 truncate">${v2EscapeHtml(shown.display_name || 'ผู้ใช้ร่วมกัน')}</div><div class="text-[10px] text-gray-400 truncate">${v2EscapeHtml(shown.email || '')} (${v2EscapeHtml(shown.user_code || code)})</div></div><span class="text-[9px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">สมาชิกใหม่</span></div>`);
         }
     } catch (e) {
