@@ -441,6 +441,7 @@
             gap: 5px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             cursor: pointer;
+            font-family: inherit;
         }
 
         #job-counter {
@@ -1387,7 +1388,7 @@
 
     <div id="top-bar">
         <div class="top-row px-1 mb-2">
-            <div id="status-bar" onclick="openDashboard()" title="เปิด Dashboard สรุปผลสำรวจ">
+            <button id="status-bar" type="button" onclick="openDashboard(event)" title="เปิด Dashboard สรุปผลสำรวจ" aria-label="เปิด Dashboard สรุปผลสำรวจ">
                 <i class="fa-solid fa-user-gear" style="color: #2563eb;"></i>
                 <span id="user-display">ตั้งค่า</span>
                 <span id="job-counter">0/0</span>
@@ -2270,7 +2271,7 @@
             <div class="flex items-center justify-between pt-2">
                 <div><p class="text-xs font-bold text-emerald-600">VISION TR</p><h1 class="text-xl font-black text-slate-800">Dashboard สรุปผลสำรวจ</h1></div>
                 <button onclick="closeDashboard()" class="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
-            </div>
+            </button>
             <div id="dashboard-content"></div>
         </div>
     </section>

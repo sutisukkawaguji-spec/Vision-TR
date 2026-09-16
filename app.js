@@ -5405,7 +5405,9 @@ function toggleBaseMap() {
 }
 
 // --- Premium Settings Modal Logic ---
-function openDashboard() {
+function openDashboard(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const screen = document.getElementById('dashboard-screen');
     if (!screen) return;
     screen.classList.remove('hidden');
@@ -7350,6 +7352,7 @@ window.onAmphoeChange = onAmphoeChange;
 window.filterMap = filterMap;
 window.importData = importData;
 window.openToolsMenu = openToolsMenu;
+window.openDashboard = openDashboard;
 window.findNearestNewJob = findNearestNewJob;
 window.toggleGPSFollow = toggleGPSFollow;
 window.viewJsonData = viewJsonData;
