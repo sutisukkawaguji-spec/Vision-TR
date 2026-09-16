@@ -2019,15 +2019,8 @@ async function saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, 
         newlyCreatedUnsavedJobIds.add(job.id);
         await syncJobsSilently();
         const refreshedJob = findJobById(job.id);
-        Swal.fire({
-            toast: true,
-            position: 'top',
-            icon: 'info',
-            title: `สร้าง${shapeNames[shape] || 'พื้นที่สำรวจอิสระ'}แล้ว`,
-            text: 'วัตถุเป็นสีแดง กรุณากรอกรายละเอียดและกดบันทึก',
-            timer: 2600,
-            showConfirmButton: false
-        });
+        // เปิดแผงรายละเอียดโดยตรงหลังวาดเสร็จ ไม่แสดง toast ทับแผนที่
+        // เพื่อให้เริ่มกรอก/แก้ไขงานต่อได้ทันทีบนอุปกรณ์พกพา
         if (refreshedJob) openSheet(refreshedJob);
     } catch (error) {
         console.error('Standalone survey drawing save error', error);
