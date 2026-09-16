@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     body { font-family: Sarabun, sans-serif; background:#f8fafc; }
@@ -26,16 +27,17 @@
     <div id="dashboard-loading" class="card text-center text-slate-400 py-12"><i class="fa-solid fa-spinner fa-spin mr-2"></i>กำลังโหลดข้อมูล...</div>
     <div id="dashboard-app" class="hidden">
       <section id="summary-cards" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"></section>
-      <section class="card mb-4"><div class="grid md:grid-cols-3 gap-2"><select id="work-group" class="rounded-xl border border-slate-200 p-3 text-sm"></select><select id="year-filter" class="rounded-xl border border-slate-200 p-3 text-sm"></select><div class="flex rounded-xl border border-slate-200 overflow-hidden"><button data-chart="bar" class="chart-type flex-1 text-sm font-bold">แท่ง</button><button data-chart="donut" class="chart-type flex-1 text-sm font-bold">โดนัท</button></div></div></section>
+      <section class="card mb-4"><div class="grid md:grid-cols-3 gap-2"><select id="work-group" class="rounded-xl border border-slate-200 p-3 text-sm"></select><select id="year-filter" class="rounded-xl border border-slate-200 p-3 text-sm"></select><div class="flex rounded-xl border border-slate-200 bg-slate-50 p-1 gap-1"><button data-chart="bar" class="chart-type flex-1 rounded-lg py-2 text-sm font-bold"><i class="fa-solid fa-chart-bar mr-1"></i>แท่ง</button><button data-chart="donut" class="chart-type flex-1 rounded-lg py-2 text-sm font-bold"><i class="fa-solid fa-chart-pie mr-1"></i>โดนัท</button></div></div></section>
       <section class="grid lg:grid-cols-2 gap-4">
         <div class="card"><div class="flex items-center justify-between gap-2 mb-4"><h2 id="chart-title" class="font-extrabold text-slate-800">กราฟผลสำรวจ</h2><select id="group-field" class="max-w-[55%] rounded-lg border border-slate-200 p-2 text-xs"></select></div><div id="main-chart"></div></div>
         <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">ผู้สำรวจและผลงาน</h2><div id="surveyors"></div></div>
         <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">สถานะแปลง</h2><div id="plot-status"></div></div>
         <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">แนวโน้ม 14 วันล่าสุด</h2><div id="trend"></div></div>
       </section>
+      <section class="card mt-4"><div class="flex flex-wrap items-center justify-between gap-2 mb-3"><h2 class="font-extrabold text-slate-800">รายการการสำรวจ</h2><span id="survey-list-count" class="text-xs font-bold text-emerald-700"></span></div><div class="grid md:grid-cols-3 gap-2 mb-3"><input id="survey-search" type="search" placeholder="ค้นหาชื่อแปลง หมายเหตุ หรือค่าที่บันทึก..." class="rounded-xl border border-slate-200 p-3 text-sm"><select id="survey-field-filter" class="rounded-xl border border-slate-200 p-3 text-sm"></select><input id="survey-value-filter" type="search" placeholder="กรองค่าจากช่องบันทึก" class="rounded-xl border border-slate-200 p-3 text-sm"></div><div id="survey-list" class="space-y-2"></div></section>
     </div>
   </main>
   <script src="config.js?v=3.3.1"></script>
-  <script src="dashboard.js?v=1.0.0"></script>
+  <script src="dashboard.js?v=1.1.0"></script>
 </body>
 </html>
