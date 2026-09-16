@@ -1135,7 +1135,8 @@ function initApp() {
         const btnTogglePm = document.getElementById('btn-toggle-pm');
         if (enablePm) {
             if (btnTogglePm) btnTogglePm.classList.remove('hidden');
-            toggleGeomanToolbar(true);
+            // Keep the user's last collapsed/expanded choice after a refresh.
+            toggleGeomanToolbar(localStorage.getItem('survey_pm_toolbar_visible') !== 'false');
         } else {
             if (btnTogglePm) btnTogglePm.classList.add('hidden');
             toggleGeomanToolbar(false);
@@ -3584,6 +3585,7 @@ function toggleGeomanToolbar(show) {
     }
 
     let shouldHide = show !== undefined ? !show : !isCurrentlyHidden;
+    localStorage.setItem('survey_pm_toolbar_visible', shouldHide ? 'false' : 'true');
 
     if (container) {
         if (shouldHide) {
@@ -4390,14 +4392,6 @@ function renderDynamicSurveyForm(job) {
             input = `<select ${common} multiple size="${Math.min(5, Math.max(3, visibleOptions.length))}">${visibleOptions.map(option => `<option value="${v2EscapeHtml(option.id)}" ${selected.includes(String(option.id)) ? 'selected' : ''}>${v2EscapeHtml(option.label)}${option.active ? '' : ' (ค่าเดิม)'}</option>`).join('')}</select>`;
         } else if (fieldType === 'checkbox') {
             input = `<label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-white"><input type="checkbox" ${common} style="width:22px;height:22px" ${value === true ? 'checked' : ''}><span class="text-sm text-gray-700">ใช่</span></label>`;
-        } else if (job.properties?.is_custom_draw === true) {
-            layer = L.circleMarker([job.lat, job.lng], {
-                radius: 9,
-                color,
-                fillColor: color,
-                weight: 3,
-                fillOpacity: job.status === 'done' ? 0.9 : 0.55
-            });
         } else {
             const htmlType = fieldType === 'datetime' ? 'datetime-local' : (['number', 'date', 'time'].includes(fieldType) ? fieldType : 'text');
             input = `<input type="${htmlType}" ${common} value="${v2EscapeHtml(value ?? '')}" placeholder="${v2EscapeHtml(field.placeholder || '')}">`;
