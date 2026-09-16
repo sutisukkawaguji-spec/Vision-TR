@@ -9,6 +9,12 @@ const opts = field => (field?.options || []).map((item, index) => typeof item ==
 const optionLabel = (field, value) => opts(field).find(item => item.id === String(value))?.label || String(value ?? '');
 const fmtDate = value => value ? String(value).slice(0, 10) : '';
 
+function setDashboardChart(type) {
+  dashboardState.graph = type === 'donut' ? 'donut' : 'bar';
+  render();
+}
+window.setDashboardChart = setDashboardChart;
+
 async function startDashboard() {
   if (!dashboardDb) return showError('ไม่พบการตั้งค่าการเชื่อมต่อฐานข้อมูล');
   const { data:{ session } } = await dashboardDb.auth.getSession();
@@ -29,7 +35,6 @@ async function startDashboard() {
   document.getElementById('work-group').addEventListener('change', event => { dashboardState.groupId = event.target.value; dashboardState.fieldKey = ''; loadGroup(); });
   document.getElementById('year-filter').addEventListener('change', event => { dashboardState.year = event.target.value; render(); });
   document.getElementById('group-field').addEventListener('change', event => { dashboardState.fieldKey = event.target.value; render(); });
-  document.querySelectorAll('.chart-type').forEach(button => button.addEventListener('click', () => { dashboardState.graph = button.dataset.chart; render(); }));
   document.getElementById('survey-search').addEventListener('input', event => { dashboardState.search = event.target.value; renderSurveyList(); });
   document.getElementById('survey-field-filter').addEventListener('change', event => { dashboardState.filterField = event.target.value; renderSurveyList(); });
   document.getElementById('survey-value-filter').addEventListener('input', event => { dashboardState.filterValue = event.target.value; renderSurveyList(); });
