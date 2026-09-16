@@ -619,7 +619,7 @@ async function clearAllSupabaseJobs() {
 let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
-let selectedPlotSearchJobId = null, plotSearchFocusLayer = null;
+let selectedPlotSearchJobId = null, plotSearchFocusLayer = null, plotSearchPulseTimer = null;
 let dashboardProfiles = [], dashboardState = { year: 'all', graph: 'bar', fieldKey: '' };
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
@@ -956,15 +956,6 @@ function initApp() {
     });
 
     setupDoubleTapTravelPin();
-
-    // Close search results when clicking outside
-    document.addEventListener('click', (e) => {
-        const searchInp = document.getElementById('inp-search');
-        const searchRes = document.getElementById('search-results');
-        if (searchInp && searchRes && !searchInp.contains(e.target) && !searchRes.contains(e.target)) {
-            searchRes.classList.remove('active');
-        }
-    });
 
     // Initialize label toggle button visual state
     const btn = document.getElementById('btn-label');
@@ -7171,8 +7162,32 @@ function doSearch() {
 }
 
 function clearPlotSearchFocus() {
+    if (plotSearchPulseTimer) window.clearInterval(plotSearchPulseTimer);
+    plotSearchPulseTimer = null;
     if (plotSearchFocusLayer && map?.hasLayer(plotSearchFocusLayer)) map.removeLayer(plotSearchFocusLayer);
     plotSearchFocusLayer = null;
+}
+
+function setPlotSearchFocusStyle(layer, style) {
+    if (layer?.eachLayer) layer.eachLayer(child => child.setStyle?.(style));
+    else layer?.setStyle?.(style);
+}
+
+function pulsePlotSearchFocus(layer) {
+    if (plotSearchPulseTimer) window.clearInterval(plotSearchPulseTimer);
+    const normal = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', opacity: 1 };
+    const flash = { color: '#facc15', fillColor: '#fde047', weight: 12, fillOpacity: 0.42, dashArray: null, opacity: 1 };
+    let step = 0;
+    setPlotSearchFocusStyle(layer, flash);
+    plotSearchPulseTimer = window.setInterval(() => {
+        step += 1;
+        setPlotSearchFocusStyle(layer, step % 2 ? normal : flash);
+        if (step >= 7) {
+            window.clearInterval(plotSearchPulseTimer);
+            plotSearchPulseTimer = null;
+            setPlotSearchFocusStyle(layer, normal);
+        }
+    }, 260);
 }
 
 function previewPlotFromSearch(id, event) {
@@ -7183,7 +7198,7 @@ function previewPlotFromSearch(id, event) {
     if (!job || !map) return;
     selectedPlotSearchJobId = id;
     clearPlotSearchFocus();
-    const style = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', className: 'plot-search-focus', interactive: false };
+    const style = { color: '#10b981', fillColor: '#34d399', weight: 5, fillOpacity: 0.12, dashArray: '10 7', interactive: false };
     if (job.geometry?.type?.includes('Polygon')) {
         plotSearchFocusLayer = L.geoJSON(job.geometry, { style });
     } else if (job.properties?.is_circle && job.properties.radius) {
@@ -7193,6 +7208,7 @@ function previewPlotFromSearch(id, event) {
     }
     plotSearchFocusLayer.addTo(map);
     if (plotSearchFocusLayer.bringToFront) plotSearchFocusLayer.bringToFront();
+    pulsePlotSearchFocus(plotSearchFocusLayer);
     const bounds = plotSearchFocusLayer.getBounds?.();
     if (bounds?.isValid?.()) map.flyToBounds(bounds, { padding: [70, 90], maxZoom: 18, duration: 0.55 });
     else map.flyTo([job.lat, job.lng], Math.max(map.getZoom(), 17), { duration: 0.55 });
