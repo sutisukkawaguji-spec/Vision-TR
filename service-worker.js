@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vision-tr-v7';
-const APP_SHELL = ['./', './index.html', './app.js?v=3.4.0', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
+const CACHE_NAME = 'vision-tr-v8';
+const APP_SHELL = ['./', './index.html', './app.js?v=3.4.1', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all(APP_SHELL.map(url => cache.add(url).catch(() => null)))).then(() => self.skipWaiting()));
@@ -23,6 +23,16 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
     const url = new URL(event.request.url);
     if (url.protocol === 'chrome-extension:' || url.hostname.includes('supabase.co')) return;
+
+    // HTML must be network-first so a deployment is never trapped behind an old
+    // cached index page. The cache remains the offline fallback.
+    if (event.request.mode === 'navigate') {
+        event.respondWith(fetch(event.request).then(response => {
+            if (response?.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+            return response;
+        }).catch(() => caches.match(event.request).then(cached => cached || caches.match('./index.html'))));
+        return;
+    }
     const isMapTile = url.hostname === 'mt1.google.com';
     const isAppAsset = url.origin === self.location.origin;
     const isStaticRemote = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'cdn.tailwindcss.com', 'cdn.jsdelivr.net', 'unpkg.com'].includes(url.hostname);
