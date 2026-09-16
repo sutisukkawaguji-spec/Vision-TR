@@ -7190,6 +7190,27 @@ function pulsePlotSearchFocus(layer) {
     }, 260);
 }
 
+function flyToSearchPreview(bounds, fallbackLatLng) {
+    const mapSize = map.getSize();
+    // The search panel covers the upper map. Reserve that area so the selected
+    // plot lands in the visible lower half instead of directly behind results.
+    const topCovered = Math.min(340, Math.round(mapSize.y * 0.46));
+    if (bounds?.isValid?.()) {
+        map.flyToBounds(bounds, {
+            paddingTopLeft: [28, topCovered],
+            paddingBottomRight: [28, 58],
+            maxZoom: 18,
+            duration: 0.55
+        });
+        return;
+    }
+    const zoom = Math.max(map.getZoom(), 17);
+    const targetPoint = map.project(fallbackLatLng, zoom);
+    const desiredY = Math.round(mapSize.y * 0.68);
+    const adjustedCenter = map.unproject(targetPoint.add([0, mapSize.y / 2 - desiredY]), zoom);
+    map.flyTo(adjustedCenter, zoom, { duration: 0.55 });
+}
+
 function previewPlotFromSearch(id, event) {
     // Re-rendering the list during this click detaches the pressed button. Stop the
     // click here so the outside-click handler does not mistake it for a map tap.
@@ -7210,8 +7231,7 @@ function previewPlotFromSearch(id, event) {
     if (plotSearchFocusLayer.bringToFront) plotSearchFocusLayer.bringToFront();
     pulsePlotSearchFocus(plotSearchFocusLayer);
     const bounds = plotSearchFocusLayer.getBounds?.();
-    if (bounds?.isValid?.()) map.flyToBounds(bounds, { padding: [70, 90], maxZoom: 18, duration: 0.55 });
-    else map.flyTo([job.lat, job.lng], Math.max(map.getZoom(), 17), { duration: 0.55 });
+    flyToSearchPreview(bounds, L.latLng(job.lat, job.lng));
     doSearch();
 }
 
