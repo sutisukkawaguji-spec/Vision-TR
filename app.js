@@ -3355,10 +3355,50 @@ function stopThreePointRectangleMode() {
     document.getElementById('btn-three-point-rectangle')?.removeAttribute('aria-pressed');
 }
 
+// Geoman permits several global modes to be enabled at once.  That is useful
+// for desktop power users, but confusing on a phone: two highlighted tools can
+// compete for the next tap on the map.  Keep map interaction deliberately
+// modal, so there is always just one active tool.
+function disableNativeMapToolModes(except = '') {
+    if (!map?.pm) return;
+    if (except !== 'draw') map.pm.Draw?.disable?.();
+    if (except !== 'edit') map.pm.disableGlobalEditMode?.();
+    if (except !== 'drag') map.pm.disableGlobalDragMode?.();
+    if (except !== 'rotate') map.pm.disableGlobalRotateMode?.();
+    if (except !== 'remove') map.pm.disableGlobalRemovalMode?.();
+}
+
+function stopRulerTool({ clear = true } = {}) {
+    if (!isRulerActive) return;
+    isRulerActive = false;
+    const rulerBtn = document.getElementById('btn-measure-ruler');
+    rulerBtn?.classList.remove('active');
+    rulerBtn?.removeAttribute('aria-pressed');
+    if (clear) clearRuler();
+    disableRulerEvents();
+}
+
+function prepareForNativeMapTool(button) {
+    const className = (button.className || '').toLowerCase();
+    const title = (button.getAttribute('title') || '').toLowerCase();
+    let mode = '';
+    if (className.includes('action-draw') || title.includes('วาด') || title.includes('draw')) mode = 'draw';
+    else if (className.includes('action-edit') || title.includes('แก้ไข') || title.includes('edit')) mode = 'edit';
+    else if (className.includes('action-drag') || title.includes('ย้าย') || title.includes('drag')) mode = 'drag';
+    else if (className.includes('action-rotate') || title.includes('หมุน') || title.includes('rotate')) mode = 'rotate';
+    else if (className.includes('action-removal') || className.includes('action-remove') || title.includes('ลบ') || title.includes('remove')) mode = 'remove';
+    if (!mode) return;
+
+    stopRulerTool();
+    stopThreePointRectangleMode();
+    disableNativeMapToolModes(mode);
+}
+
 function startThreePointRectangleMode() {
     if (!map) return;
     if (isThreePointRectangleMode) return stopThreePointRectangleMode();
-    if (map.pm?.disableDraw) map.pm.disableDraw('Rectangle');
+    stopRulerTool();
+    disableNativeMapToolModes();
     clearDrawingMeasurements();
     isThreePointRectangleMode = true;
     threePointRectanglePoints = [];
@@ -3368,7 +3408,6 @@ function startThreePointRectangleMode() {
     const button = document.getElementById('btn-three-point-rectangle');
     button?.classList.add('active');
     button?.setAttribute('aria-pressed', 'true');
-    Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'วาดสี่เหลี่ยม 3 จุด', text: '1) จุดเริ่ม  2) ปลายกำหนดแนวยาว  3) จุดกำหนดความกว้าง', timer: 3200, showConfirmButton: false });
 }
 
 function onThreePointRectangleMove(event) {
@@ -3399,7 +3438,13 @@ function initRulerGroup() {
 }
 
 function toggleRulerTool() {
-    isRulerActive = !isRulerActive;
+    if (isRulerActive) {
+        stopRulerTool();
+        return;
+    }
+    stopThreePointRectangleMode();
+    disableNativeMapToolModes();
+    isRulerActive = true;
     const rulerBtn = document.getElementById('btn-measure-ruler');
     
     if (isRulerActive) {
@@ -3407,23 +3452,7 @@ function toggleRulerTool() {
             rulerBtn.classList.add('active');
             rulerBtn.setAttribute('aria-pressed', 'true');
         }
-        Swal.fire({
-            toast: true,
-            position: 'top',
-            icon: 'info',
-            title: 'เปิดเครื่องมือไม้บรรทัด',
-            text: 'แตะบนแผนที่เพื่อเริ่มวัดระยะทางและพื้นที่ (ล้างระยะที่ปุ่มแถบบน)',
-            timer: 2500,
-            showConfirmButton: false
-        });
         enableRulerEvents();
-    } else {
-        if (rulerBtn) {
-            rulerBtn.classList.remove('active');
-            rulerBtn.removeAttribute('aria-pressed');
-        }
-        clearRuler();
-        disableRulerEvents();
     }
 }
 
@@ -3736,6 +3765,13 @@ function decorateGeomanToolbars() {
                              (button.getAttribute('title') || '').toLowerCase().includes('rotate');
             if (isRotate) {
                 button.setAttribute('aria-label', 'หมุนรูปแปลง');
+            }
+
+            // Capture before Geoman handles the click.  Existing modes are
+            // stopped first, then Geoman can activate the button just tapped.
+            if (!button.id && !button.dataset.exclusiveToolBound) {
+                button.dataset.exclusiveToolBound = 'true';
+                button.addEventListener('click', () => prepareForNativeMapTool(button), true);
             }
         });
     });
