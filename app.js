@@ -3968,7 +3968,9 @@ function renderMap(fitBounds = false) {
                     mClassName = 'job-navigating-pulse';
                 }
                 layer = L.marker([job.lat, job.lng], {
-                    icon: L.icon({ iconUrl, iconSize: [25, 41], iconAnchor: [12, 41], className: mClassName })
+                    // Pins represent a point, so they must keep a constant on-screen
+                    // size at every zoom level.  Do not use a geographic circle here.
+                    icon: L.icon({ iconUrl, iconSize: [25, 41], iconAnchor: [12, 41], className: `saved-job-pin ${mClassName}`.trim() })
                 });
             }
         } else {
@@ -3981,7 +3983,9 @@ function renderMap(fitBounds = false) {
                 mClassName = 'job-navigating-pulse';
             }
             layer = L.marker([job.lat, job.lng], {
-                icon: L.icon({ iconUrl, iconSize: [25, 41], iconAnchor: [12, 41], className: mClassName })
+                // Keep saved pins compact and readable rather than allowing a
+                // zoom-dependent presentation to cover the map.
+                icon: L.icon({ iconUrl, iconSize: [25, 41], iconAnchor: [12, 41], className: `saved-job-pin ${mClassName}`.trim() })
             });
         }
         if (layer) {

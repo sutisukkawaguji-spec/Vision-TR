@@ -1159,6 +1159,18 @@
             z-index: 1999 !important;
         }
 
+        /* Saved point pins are UI markers, not map areas. Keep their footprint
+           fixed in pixels at all zoom levels so dense results never cover the map. */
+        #map img.leaflet-marker-icon.saved-job-pin {
+            width: 25px !important;
+            height: 41px !important;
+            min-width: 25px !important;
+            min-height: 41px !important;
+            max-width: 25px !important;
+            max-height: 41px !important;
+            object-fit: contain;
+        }
+
         /* Unified responsive control system */
         :root {
             --ui-control-size: 44px;
@@ -2306,7 +2318,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.1" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.2" charset="UTF-8"></script>
 </body>
 
 </html>
