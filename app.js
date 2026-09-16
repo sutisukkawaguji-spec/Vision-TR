@@ -2214,6 +2214,10 @@ function createSurveyFeatureLayer(job, feature) {
         target.options.pmIgnore = false;
         target.surveyFeatureId = feature.id;
         target.parentJobId = job.id;
+        // Re-open the same measurement overlay when a saved child drawing
+        // enters Edit Layer.  It refreshes while vertices are moved, before
+        // the geometry is persisted on pm:edit.
+        target.on('pm:enable pm:change pm:vertexadded pm:vertexremoved', () => showEditablePolygonMeasurements(target));
         target.on('pm:edit pm:dragend pm:rotateend', () => updateSurveyFeatureFromLayer(job.id, feature.id, target));
         target.on('click', event => {
             const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
@@ -3075,6 +3079,9 @@ function bindGeomanEvents(layer, jobId) {
             scheduleCustomDrawingGeometrySave(jobId);
             showPendingActionsBar();
         };
+        // Show dimensions as soon as this saved polygon is selected for
+        // editing, then redraw them continuously as its vertices change.
+        l.on('pm:enable pm:change pm:vertexadded pm:vertexremoved', () => showEditedShapeMeasurements(l, jobId));
         l.on('pm:edit', keepGeometry);
         l.on('pm:dragend', keepGeometry);
         l.on('pm:rotateend', keepGeometry);
@@ -3100,6 +3107,13 @@ function showEditedShapeMeasurements(layer, jobId) {
     if (!job?.properties?.is_custom_draw || typeof layer?.getLatLngs !== 'function') return;
     const drawingShape = job.properties.drawing_shape === 'Rectangle' ? 'Rectangle' : 'Polygon';
     pinCompletedDrawingMeasurements(layer, drawingShape);
+}
+
+function showEditablePolygonMeasurements(layer) {
+    if (typeof layer?.getLatLngs !== 'function') return;
+    const points = getDrawingMeasurePoints(layer);
+    if (points.length < 3) return;
+    pinCompletedDrawingMeasurements(layer, layer instanceof L.Rectangle ? 'Rectangle' : 'Polygon');
 }
 
 // --- คิวจัดการเก็บพิกัดที่มีการขยับ/แก้ไขชั่วคราว ---
