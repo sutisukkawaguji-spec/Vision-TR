@@ -7175,7 +7175,10 @@ function clearPlotSearchFocus() {
     plotSearchFocusLayer = null;
 }
 
-function previewPlotFromSearch(id) {
+function previewPlotFromSearch(id, event) {
+    // Re-rendering the list during this click detaches the pressed button. Stop the
+    // click here so the outside-click handler does not mistake it for a map tap.
+    event?.stopPropagation();
     const job = findJobById(id);
     if (!job || !map) return;
     selectedPlotSearchJobId = id;
@@ -8337,7 +8340,7 @@ doSearch = async function () {
         const matches = v2MatchingFields(properties, plotTerms);
         const isSelected = job.id === selectedPlotSearchJobId;
         results.innerHTML += `
-            <button type="button" class="w-full text-left p-3 border-b hover:bg-gray-50 ${isSelected ? 'plot-search-selected' : ''}" onclick="previewPlotFromSearch('${v2EscapeHtml(job.id)}')">
+            <button type="button" class="w-full text-left p-3 border-b hover:bg-gray-50 ${isSelected ? 'plot-search-selected' : ''}" onclick="previewPlotFromSearch('${v2EscapeHtml(job.id)}', event)">
                 <div class="flex items-center justify-between gap-2"><div class="text-sm font-bold text-gray-800 truncate">${v2EscapeHtml(properties.name || '(ไม่มีชื่อแปลง)')}</div>${isSelected ? '<span class="shrink-0 text-[10px] font-bold text-emerald-700"><i class="fa-solid fa-location-crosshairs"></i> บนแผนที่</span>' : ''}</div>
                 <div class="text-[10px] text-blue-600 mt-0.5">${v2EscapeHtml(matches.join(' · ') || `พบใน Base Map · ${job.category}`)}</div>
                 ${properties.note ? `<div class="text-[10px] text-gray-500 truncate mt-0.5">${v2EscapeHtml(properties.note)}</div>` : ''}
