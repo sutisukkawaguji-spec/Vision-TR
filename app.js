@@ -2596,14 +2596,9 @@ async function handleVoiceCommand(transcript) {
             if (job) {
                 const container = document.getElementById('swal-raw-data-container');
                 if (container) {
-                    const sortedKeys = Object.keys(job.properties).sort();
-                    const rows = [];
-                    sortedKeys.forEach(k => {
-                        if (k !== 'images' && k !== 'name' && k !== 'note' && k !== 'date' && k !== 'search_field' && k !== 'amphoe' && k !== 'tambon' && k !== 'area') {
-                            const val = typeof job.properties[k] === 'object' ? JSON.stringify(job.properties[k]) : job.properties[k];
-                            rows.push({ key: k, value: val !== undefined && val !== null ? val : '-' });
-                        }
-                    });
+                    const rows = getPlotDataEntries(job)
+                        .sort(([a], [b]) => a.localeCompare(b, 'th'))
+                        .map(([key, value]) => ({ key, value }));
 
                     if (rows.length > 0) {
                         let startLine = 1;
@@ -4636,24 +4631,43 @@ async function stopNav(skipDbSaveForJobId = null) {
     renderMap();
 }
 
+// Keep technical/map-maintenance fields out of the operator-facing data panel.
+// The panel is for imported or manually entered plot attributes, not geometry,
+// sync metadata, photos, or survey-form internals.
+const plotTechnicalFieldKeys = new Set([
+    'images', 'name', 'note', 'date', 'area', 'geometry', 'lat', 'lng', 'latitude', 'longitude',
+    'search_text', 'search_field', 'amphoe', 'tambon', 'base_map_id', 'base_plot_id', 'work_group_id',
+    'team_id', 'import_source', 'source_type', 'source_feature_id', 'is_custom_draw', 'is_circle', 'radius',
+    'drawing_shape', 'navigator_id', 'navigator_name', 'form_data', 'form_version', 'form_schema',
+    'form_layer_type', 'form_layer_color', 'survey_features', 'recorded_by', 'recorded_at', 'updated_at', 'created_at'
+]);
+
+function getPlotDataEntries(job) {
+    const basePlot = (typeof v2BasePlots !== 'undefined') ? v2BasePlots.find(plot => plot.id === job?.id) : null;
+    const rawProperties = basePlot?.source_properties || job?.properties || {};
+    return Object.entries(rawProperties).filter(([key, value]) => {
+        const normalized = String(key).trim().toLowerCase();
+        if (!normalized || normalized.startsWith('_') || plotTechnicalFieldKeys.has(normalized)) return false;
+        // Spatial geometry/coordinates and nested application metadata are not
+        // meaningful as table rows for a field user.
+        if (/^(shape_)?area|^length|^perimeter|^(lat|lng|lon|long|coord|coordinate|geometry|geom)(_|$)/.test(normalized)) return false;
+        if (value === undefined || value === null || value === '' || typeof value === 'object') return false;
+        return true;
+    });
+}
+
 function renderInlineRawData(job) {
     const container = document.getElementById('inline-raw-data');
     if (!container || !job) return;
-    const basePlot = (typeof v2BasePlots !== 'undefined') ? v2BasePlots.find(plot => plot.id === job.id) : null;
-    const rawProperties = basePlot?.source_properties || job.properties || {};
-    const entries = Object.entries(rawProperties);
+    const entries = getPlotDataEntries(job);
     if (entries.length === 0) {
-        container.innerHTML = '<div class="p-3 text-xs text-gray-400">ไม่มีข้อมูลดิบ</div>';
+        container.innerHTML = '<div class="p-3 text-xs text-gray-400">ไม่มีข้อมูลแปลงที่ต้องแสดง</div>';
         return;
     }
     container.innerHTML = `<table class="w-full text-[11px] border-collapse"><tbody>${entries.map(([key, value], index) => {
-        let displayValue = value;
-        if (typeof value === 'object' && value !== null) {
-            try { displayValue = JSON.stringify(value); } catch (error) { displayValue = String(value); }
-        }
         return `<tr class="${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-100">
             <td class="w-[38%] px-3 py-2 align-top font-bold text-gray-600 break-words">${v2EscapeHtml(key)}</td>
-            <td class="px-3 py-2 align-top text-gray-800 break-words select-text">${v2EscapeHtml(displayValue ?? '-')}</td>
+            <td class="px-3 py-2 align-top text-gray-800 break-words select-text">${v2EscapeHtml(value)}</td>
         </tr>`;
     }).join('')}</tbody></table>`;
 }
@@ -5126,17 +5140,13 @@ function viewJsonData() {
     if (fabContainer) fabContainer.classList.remove('sheet-open');
 
     let html = '<div id="swal-raw-data-container" class="text-left text-xs max-h-[60vh] overflow-y-auto"><table class="w-full border-collapse border border-gray-200 rounded-xl overflow-hidden">';
-    const sortedKeys = Object.keys(job.properties).sort();
-    sortedKeys.forEach(k => {
-        if (k !== 'images' && k !== 'name' && k !== 'note' && k !== 'date' && k !== 'search_field' && k !== 'amphoe' && k !== 'tambon' && k !== 'area') {
-            const val = typeof job.properties[k] === 'object' ? JSON.stringify(job.properties[k]) : job.properties[k];
+    getPlotDataEntries(job).sort(([a], [b]) => a.localeCompare(b, 'th')).forEach(([key, value]) => {
             html += `
                         <tr class="border-b border-gray-150 hover:bg-gray-50">
-                            <td class="font-bold p-2.5 text-gray-500 bg-gray-100/50 w-1/3 border-r border-gray-150">${k}</td>
-                            <td class="p-2.5 text-gray-800 break-all">${val !== undefined && val !== null ? val : '-'}</td>
+                            <td class="font-bold p-2.5 text-gray-500 bg-gray-100/50 w-1/3 border-r border-gray-150">${v2EscapeHtml(key)}</td>
+                            <td class="p-2.5 text-gray-800 break-all">${v2EscapeHtml(value)}</td>
                         </tr>
                     `;
-        }
     });
     html += '</table></div>';
 
