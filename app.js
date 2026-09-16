@@ -4979,7 +4979,7 @@ function enableEdit() {
     }
 }
 
-async function closeSheet(e) {
+async function closeSheet(e, { preserveSavedState = false } = {}) {
     if (e) e.stopPropagation();
 
     // Only the explicit close button returns to a search list opened from its
@@ -4997,7 +4997,10 @@ async function closeSheet(e) {
         if (job) {
             const btnSave = document.getElementById('btn-save');
             const isEditing = btnSave && !btnSave.classList.contains('hidden');
-            if (isEditing && window.originalImagesBackup) {
+            // Closing with the X discards an unfinished edit.  A successful
+            // save also closes this sheet, but must retain the freshly uploaded
+            // image list in memory so re-opening the marker/drawing shows it.
+            if (!preserveSavedState && isEditing && window.originalImagesBackup) {
                 if (job.properties.images) {
                     job.properties.images.forEach(img => {
                         if (img && img.isTemp && img.url && img.url.startsWith('blob:')) {
@@ -5574,7 +5577,7 @@ async function saveData() {
             job.status = 'done';
             job.properties = queuedJob.properties;
         }
-        renderMap(); closeSheet();
+        renderMap(); closeSheet(null, { preserveSavedState: true });
         Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'บันทึกไว้ในเครื่องแล้ว รอส่งเมื่อออนไลน์', timer: 2600, showConfirmButton: false });
         return;
     }
@@ -5695,7 +5698,7 @@ async function saveData() {
             newlyCreatedUnsavedJobIds.delete(job.id);
 
             renderMap();
-            closeSheet();
+            closeSheet(null, { preserveSavedState: true });
         }
 
         if (job.properties?.is_custom_draw) clearDrawingMeasurements();
