@@ -8315,6 +8315,45 @@ async function searchMapPlaces(query) {
         }));
 }
 
+async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+}
+
+async function copyPlaceSearchLink(index, event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const place = window.currentPlaceSearchResults?.[index];
+    if (!place) return;
+    try {
+        if (place.placePrediction && (!Number.isFinite(Number(place.lat)) || !Number.isFinite(Number(place.lng)))) {
+            const googlePlace = place.placePrediction.toPlace();
+            await googlePlace.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
+            if (googlePlace.location) {
+                place.name = googlePlace.displayName || googlePlace.formattedAddress || place.name;
+                place.address = googlePlace.formattedAddress || place.secondaryText || '';
+                place.lat = googlePlace.location.lat();
+                place.lng = googlePlace.location.lng();
+            }
+        }
+        const query = Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng))
+            ? `${place.lat},${place.lng}`
+            : `${place.name || ''} ${place.address || place.secondaryText || ''}`.trim();
+        await copyTextToClipboard(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`);
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'คัดลอกลิงก์สถานที่แล้ว', timer: 1700, showConfirmButton: false });
+    } catch (error) {
+        Swal.fire('คัดลอกลิงก์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+    }
+}
+window.copyPlaceSearchLink = copyPlaceSearchLink;
+
 async function selectPlaceSearchResult(index, event) {
     // The list stays on screen after previewing a place, just like plot search.
     event?.stopPropagation();
@@ -8374,7 +8413,7 @@ doSearch = async function () {
                 <div class="sticky top-0 z-10 flex items-center justify-between bg-white border-b border-gray-100 px-3 py-2"><span class="text-[10px] font-bold text-gray-600"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>แตะรายการเพื่อแสดงหมุด</span><button type="button" onclick="closePlotSearchResults()" class="w-7 h-7 rounded-full text-gray-500 hover:bg-gray-100" aria-label="ปิดผลค้นหา"><i class="fa-solid fa-xmark"></i></button></div>
                 <div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${places.length} สถานที่ · เลื่อนเพื่อดูรายการอื่น</div>` + places.slice(0, 50).map((place, index) => `
                 <button type="button" data-place-index="${index}" class="w-full text-left p-3 border-b hover:bg-purple-50" onclick="selectPlaceSearchResult(${index}, event)">
-                    <div class="text-sm font-bold text-gray-800"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>${v2EscapeHtml(place.name)}</div>
+                    <div class="flex items-start justify-between gap-2"><div class="text-sm font-bold text-gray-800"><i class="fa-solid fa-location-dot text-purple-600 mr-1"></i>${v2EscapeHtml(place.name)}</div><button type="button" onclick="copyPlaceSearchLink(${index}, event)" class="shrink-0 w-8 h-8 -mt-1 rounded-full text-blue-600 hover:bg-blue-50" aria-label="คัดลอกลิงก์สถานที่" title="คัดลอกลิงก์สถานที่"><i class="fa-regular fa-copy"></i></button></div>
                     ${place.secondaryText ? `<div class="text-[10px] text-gray-500 mt-1">${v2EscapeHtml(place.secondaryText)}</div>` : ''}
                     <div class="text-[10px] text-red-500 mt-1"><i class="fab fa-google mr-1"></i>${v2EscapeHtml(place.source)} · แตะเพื่อแสดงตำแหน่งบนแผนที่</div>
                 </button>`).join('') + '<div class="sticky bottom-0 bg-white/95 border-t border-gray-100 px-3 py-2 text-center text-[10px] text-gray-400 backdrop-blur">แตะหมุดบนแผนที่เพื่อปักหมุดหรือนำทาง</div>' : '<div class="p-3 text-xs text-gray-500">ไม่พบสถานที่ ลองระบุจังหวัดหรืออำเภอเพิ่ม</div>';
