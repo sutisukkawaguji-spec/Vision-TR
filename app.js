@@ -5408,10 +5408,8 @@ function toggleBaseMap() {
 function openDashboard(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    const screen = document.getElementById('dashboard-screen');
-    if (!screen) return;
-    screen.classList.remove('hidden');
-    renderDashboard();
+    const group = v2ActiveWorkGroup?.id ? `?workGroup=${encodeURIComponent(v2ActiveWorkGroup.id)}` : '';
+    window.location.assign(`dashboard.html${group}`);
 }
 
 function closeDashboard() { document.getElementById('dashboard-screen')?.classList.add('hidden'); }

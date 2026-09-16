@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#065f46">
+  <title>Vision TR · Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: Sarabun, sans-serif; background:#f8fafc; }
+    .card { background:#fff; border:1px solid #e2e8f0; border-radius:1rem; padding:1rem; }
+    .bar-scroll { max-height:440px; overflow-y:auto; padding-right:.25rem; }
+    .donut { width:12rem; height:12rem; border-radius:50%; padding:2.5rem; flex:0 0 auto; }
+    .donut-hole { width:100%; height:100%; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  </style>
+</head>
+<body>
+  <main class="max-w-6xl mx-auto p-4 pb-10">
+    <header class="flex items-center justify-between gap-3 py-2 mb-4">
+      <div><p class="text-xs font-bold text-emerald-600">VISION TR</p><h1 class="text-2xl font-extrabold text-slate-800">Dashboard สรุปผลสำรวจ</h1></div>
+      <a id="back-to-map" href="index.html" class="rounded-xl bg-white border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700"><i class="fa-solid fa-map mr-1"></i> กลับแผนที่</a>
+    </header>
+    <div id="dashboard-loading" class="card text-center text-slate-400 py-12"><i class="fa-solid fa-spinner fa-spin mr-2"></i>กำลังโหลดข้อมูล...</div>
+    <div id="dashboard-app" class="hidden">
+      <section id="summary-cards" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"></section>
+      <section class="card mb-4"><div class="grid md:grid-cols-3 gap-2"><select id="work-group" class="rounded-xl border border-slate-200 p-3 text-sm"></select><select id="year-filter" class="rounded-xl border border-slate-200 p-3 text-sm"></select><div class="flex rounded-xl border border-slate-200 overflow-hidden"><button data-chart="bar" class="chart-type flex-1 text-sm font-bold">แท่ง</button><button data-chart="donut" class="chart-type flex-1 text-sm font-bold">โดนัท</button></div></div></section>
+      <section class="grid lg:grid-cols-2 gap-4">
+        <div class="card"><div class="flex items-center justify-between gap-2 mb-4"><h2 id="chart-title" class="font-extrabold text-slate-800">กราฟผลสำรวจ</h2><select id="group-field" class="max-w-[55%] rounded-lg border border-slate-200 p-2 text-xs"></select></div><div id="main-chart"></div></div>
+        <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">ผู้สำรวจและผลงาน</h2><div id="surveyors"></div></div>
+        <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">สถานะแปลง</h2><div id="plot-status"></div></div>
+        <div class="card"><h2 class="font-extrabold text-slate-800 mb-3">แนวโน้ม 14 วันล่าสุด</h2><div id="trend"></div></div>
+      </section>
+    </div>
+  </main>
+  <script src="config.js?v=3.3.1"></script>
+  <script src="dashboard.js?v=1.0.0"></script>
+</body>
+</html>
