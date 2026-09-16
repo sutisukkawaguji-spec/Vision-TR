@@ -3082,6 +3082,7 @@ function bindGeomanEvents(layer, jobId) {
         // ดักจับเหตุการณ์การแก้ไข ย้าย และหมุน
         const keepGeometry = () => {
             queueGeomanUpdate(l, jobId);
+            showEditedShapeMeasurements(l, jobId);
             scheduleCustomDrawingGeometrySave(jobId);
             showPendingActionsBar();
         };
@@ -3103,6 +3104,13 @@ function bindGeomanEvents(layer, jobId) {
     } else {
         bindToSingleLayer(layer);
     }
+}
+
+function showEditedShapeMeasurements(layer, jobId) {
+    const job = findJobById(jobId);
+    if (!job?.properties?.is_custom_draw || typeof layer?.getLatLngs !== 'function') return;
+    const drawingShape = job.properties.drawing_shape === 'Rectangle' ? 'Rectangle' : 'Polygon';
+    pinCompletedDrawingMeasurements(layer, drawingShape);
 }
 
 // --- คิวจัดการเก็บพิกัดที่มีการขยับ/แก้ไขชั่วคราว ---
@@ -4215,7 +4223,8 @@ function renderMap(fitBounds = false) {
             color = '#facc15';
             fill = 0;
         }
-        if (viewMode === 'original' && job.geometry) {
+        const isUnfinishedCustomDrawing = job.properties?.is_custom_draw === true && job.status !== 'done';
+        if ((viewMode === 'original' || isUnfinishedCustomDrawing) && job.geometry) {
             if (job.geometry.type.includes('Polygon')) {
                 layer = L.geoJSON(job.geometry, { style: {
                     color: color,
@@ -4306,7 +4315,7 @@ function renderMap(fitBounds = false) {
                 labelClass += ' job-label-pending';
             }
 
-            if ((isNavigating && job.id === selectedJobId) || (!isNavigating && showPinLabels)) {
+            if (!isUnfinishedCustomDrawing && ((isNavigating && job.id === selectedJobId) || (!isNavigating && showPinLabels))) {
                 layer.bindTooltip(job.properties.name || 'ไม่มีชื่อ', {
                     permanent: true,
                     direction: 'top',
