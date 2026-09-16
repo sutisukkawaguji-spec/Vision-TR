@@ -607,6 +607,7 @@ async function clearAllSupabaseJobs() {
 let map, userMarker, routingControl;
 let dbJobs = [], markersGroup;
 let selectedJobId = null, lastSelectedJobId = null, selectedSurveyFeatureId = null, currentUser = { name: 'ผู้ใช้ทั่วไป', category: 'ทั่วไป' }, categories = ['ทั่วไป', 'ตรวจสอบ', 'เร่งด่วน'];
+let dashboardProfiles = [], dashboardState = { year: 'all', graph: 'bar', fieldKey: '' };
 let viewMode = 'original', isNavigating = false, isFollowing = false;
 let activeNavigationTarget = null;
 let lastNavigationTarget = null;
@@ -1803,6 +1804,8 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
             form_data: result.value.values,
             form_version: getActiveSurveyForm()?.version || 0,
             form_schema: getActiveSurveyForm()?.fields || [],
+            recorded_by: currentUser?.id || feature.recorded_by || null,
+            recorded_by_name: currentUser?.name || currentUser?.display_name || feature.recorded_by_name || 'ผู้สำรวจ',
             images: [...(feature.images || []), ...newImages],
             status: 'done',
             recorded_at: new Date().toISOString(),
@@ -5411,17 +5414,47 @@ function openDashboard() {
 
 function closeDashboard() { document.getElementById('dashboard-screen')?.classList.add('hidden'); }
 
-function renderDashboard() {
+async function loadDashboardProfiles() {
+    if (!supabaseClient || !currentUser?.team_id) return;
+    try {
+        const { data, error } = await supabaseClient.from('profiles').select('id,display_name,email,updated_at').eq('team_id', currentUser.team_id);
+        if (error) throw error;
+        dashboardProfiles = data || [];
+    } catch (error) { console.warn('Dashboard profile load failed', error); }
+}
+
+function dashboardDateYear(value) {
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? String(date.getFullYear()) : '';
+}
+
+function dashboardDonut(items) {
+    const total = items.reduce((sum, [, count]) => sum + count, 0) || 1;
+    const colors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#64748b'];
+    let cursor = 0;
+    const segments = items.map(([, count], index) => {
+        const start = cursor; cursor += count / total * 100;
+        return `${colors[index % colors.length]} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+    }).join(', ');
+    return `<div class="flex flex-col sm:flex-row items-center gap-5"><div class="w-48 h-48 rounded-full shrink-0" style="background:conic-gradient(${segments});"><div class="w-28 h-28 bg-white rounded-full m-10 flex flex-col items-center justify-center"><b class="text-2xl text-slate-800">${total}</b><span class="text-[10px] text-slate-500">รายการ</span></div></div><div class="w-full max-h-56 overflow-y-auto space-y-2">${items.map(([label, count], index) => `<div class="flex justify-between text-xs"><span class="min-w-0 truncate"><i class="inline-block w-2.5 h-2.5 rounded-full mr-2" style="background:${colors[index % colors.length]}"></i>${v2EscapeHtml(label)}</span><b>${count}</b></div>`).join('')}</div></div>`;
+}
+
+async function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     if (!container) return;
+    container.innerHTML = '<div class="p-8 text-center text-sm text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>กำลังสรุปข้อมูล...</div>';
+    await loadDashboardProfiles();
     const form = getActiveSurveyForm();
     // Work group scopes the dashboard.  Only a Dropdown explicitly marked by
     // its form owner divides the results into graph categories.
     const fields = (form?.fields || []).filter(field => field.dashboard_group === true && ['select', 'multiselect'].includes(normalizeSurveyFieldType(field.type)));
-    const selectedKey = document.getElementById('dashboard-group-field')?.value || fields[0]?.key || '';
+    let selectedKey = dashboardState.fieldKey || document.getElementById('dashboard-group-field')?.value || fields[0]?.key || '';
+    if (selectedKey && !fields.some(field => field.key === selectedKey)) selectedKey = fields[0]?.key || '';
+    dashboardState.fieldKey = selectedKey;
     const selectedField = fields.find(field => field.key === selectedKey);
-    const features = dbJobs.flatMap(job => (job.properties?.survey_features || []).map(feature => ({ ...feature, parentName: job.properties?.name || job.id, parentId: job.id })))
-        .filter(feature => feature.status === 'done');
+    const allFeatures = dbJobs.flatMap(job => (job.properties?.survey_features || []).map(feature => ({ ...feature, parentName: job.properties?.name || job.id, parentId: job.id, fallbackRecorder: job.properties?.recorded_by })));
+    const years = [...new Set(allFeatures.map(feature => dashboardDateYear(feature.recorded_at || feature.updated_at)).filter(Boolean))].sort().reverse();
+    const features = allFeatures.filter(feature => feature.status === 'done' && (dashboardState.year === 'all' || dashboardDateYear(feature.recorded_at || feature.updated_at) === dashboardState.year));
     const counts = new Map();
     if (selectedField) {
         features.forEach(feature => {
@@ -5434,13 +5467,29 @@ function renderDashboard() {
     }
     const max = Math.max(1, ...counts.values());
     const photoCount = features.reduce((sum, feature) => sum + (feature.images || []).length, 0);
-    const cards = `<div class="grid grid-cols-3 gap-2 mb-4">
-        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปวาดที่สำรวจ</p><p class="text-2xl font-black text-slate-800">${features.length}</p></div>
-        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">แปลงที่มีผล</p><p class="text-2xl font-black text-slate-800">${new Set(features.map(feature => feature.parentId)).size}</p></div>
-        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">รูปถ่าย</p><p class="text-2xl font-black text-slate-800">${photoCount}</p></div></div>`;
-    const selector = fields.length ? `<label class="block text-xs font-bold text-slate-600 mb-2">แบ่งกราฟด้วย Dropdown</label><select id="dashboard-group-field" onchange="renderDashboard()" class="w-full p-3 rounded-xl border border-slate-200 bg-white mb-3">${fields.map(field => `<option value="${v2EscapeHtml(field.key)}" ${field.key === selectedKey ? 'selected' : ''}>${v2EscapeHtml(field.label)}</option>`).join('')}</select>` : '<div class="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800">ยังไม่ได้กำหนด Dropdown สำหรับกราฟ: ไปที่ ตั้งค่า → แบบฟอร์ม → แก้ไข Dropdown แล้วเลือก “ใช้ Dropdown นี้จัดกลุ่มกราฟบน Dashboard”</div>';
-    const bars = counts.size ? Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([label, count]) => `<button onclick='dashboardFocusCategory(${JSON.stringify(selectedKey)},${JSON.stringify(label)})' class="w-full text-left mb-3"><div class="flex justify-between text-xs font-bold text-slate-700 mb-1"><span>${v2EscapeHtml(label)}</span><span>${count}</span></div><div class="h-3 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:${(count / max) * 100}%"></div></div></button>`).join('') : '<div class="text-center text-sm text-slate-400 py-8">ยังไม่มีผลสำรวจที่มีค่าจาก Dropdown นี้</div>';
-    container.innerHTML = `${cards}<div class="bg-white rounded-2xl border border-slate-200 p-4">${selector}<h2 class="font-bold text-slate-800 mb-4">กราฟจำนวนผลสำรวจ</h2>${bars}</div>`;
+    const completedPlots = dbJobs.filter(job => job.status === 'done').length;
+    const statusCounts = ['waiting', 'navigating', 'checking', 'done', 'problem'].map(status => [status, dbJobs.filter(job => job.status === status).length]);
+    const statusLabels = { waiting: 'รอดำเนินการ', navigating: 'กำลังเดินทาง', checking: 'กำลังตรวจ', done: 'เสร็จสิ้น', problem: 'มีปัญหา' };
+    const byPerson = new Map();
+    features.forEach(feature => { const id = feature.recorded_by || feature.fallbackRecorder || 'unknown'; byPerson.set(id, (byPerson.get(id) || 0) + 1); });
+    const now = Date.now();
+    const people = dashboardProfiles.map(profile => ({ ...profile, count: byPerson.get(profile.id) || 0, online: profile.id === currentUser.id ? navigator.onLine : now - new Date(profile.updated_at || 0).getTime() < 15 * 60 * 1000 }));
+    const trend = new Map();
+    features.forEach(feature => { const date = String(feature.recorded_at || feature.updated_at || '').slice(0, 10); if (date) trend.set(date, (trend.get(date) || 0) + 1); });
+    const trendItems = Array.from(trend.entries()).sort((a, b) => a[0].localeCompare(b[0])).slice(-14);
+    const trendMax = Math.max(1, ...trendItems.map(([, count]) => count));
+    const sortedCounts = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    const cards = `<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">ชื่องาน</p><p class="text-sm font-black text-slate-800 truncate">${v2EscapeHtml(v2ActiveWorkGroup?.name || currentUser.category || '-')}</p></div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">จำนวนแปลง</p><p class="text-2xl font-black text-slate-800">${dbJobs.length}</p><p class="text-[10px] text-emerald-600">เสร็จ ${completedPlots}</p></div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">การสำรวจ</p><p class="text-2xl font-black text-slate-800">${features.length}</p><p class="text-[10px] text-slate-500">รูปถ่าย ${photoCount}</p></div>
+        <div class="bg-white border border-slate-200 rounded-2xl p-3"><p class="text-[10px] text-slate-500">ทีมออนไลน์ล่าสุด</p><p class="text-2xl font-black text-slate-800">${people.filter(person => person.online).length}/${people.length}</p><p class="text-[10px] text-slate-500">ภายใน 15 นาที</p></div></div>`;
+    const controls = `<div class="grid sm:grid-cols-3 gap-2 mb-4"><select id="dashboard-group-field" onchange="dashboardState.fieldKey=this.value;renderDashboard()" class="p-3 rounded-xl border border-slate-200 bg-white text-sm">${fields.length ? fields.map(field => `<option value="${v2EscapeHtml(field.key)}" ${field.key === selectedKey ? 'selected' : ''}>${v2EscapeHtml(field.label)}</option>`).join('') : '<option>ยังไม่ได้กำหนด Dropdown</option>'}</select><select onchange="dashboardState.year=this.value;renderDashboard()" class="p-3 rounded-xl border border-slate-200 bg-white text-sm"><option value="all" ${dashboardState.year === 'all' ? 'selected' : ''}>ทุกปี</option>${years.map(year => `<option value="${year}" ${dashboardState.year === year ? 'selected' : ''}>ปี ${year}</option>`).join('')}</select><div class="flex rounded-xl border border-slate-200 bg-white overflow-hidden"><button onclick="dashboardState.graph='bar';renderDashboard()" class="flex-1 text-xs font-bold ${dashboardState.graph === 'bar' ? 'bg-emerald-600 text-white' : 'text-slate-600'}"><i class="fa-solid fa-chart-bar mr-1"></i>แท่ง</button><button onclick="dashboardState.graph='donut';renderDashboard()" class="flex-1 text-xs font-bold ${dashboardState.graph === 'donut' ? 'bg-emerald-600 text-white' : 'text-slate-600'}"><i class="fa-solid fa-chart-pie mr-1"></i>โดนัท</button></div></div>`;
+    const chart = !fields.length ? '<div class="p-4 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-800">กำหนด Dropdown ในแบบฟอร์ม แล้วติ๊ก “ใช้ Dropdown นี้จัดกลุ่มกราฟบน Dashboard”</div>' : !sortedCounts.length ? '<div class="text-center text-sm text-slate-400 py-10">ยังไม่มีผลสำรวจของตัวกรองนี้</div>' : dashboardState.graph === 'donut' ? dashboardDonut(sortedCounts) : `<div class="max-h-[420px] overflow-y-auto pr-1">${sortedCounts.map(([label, count]) => `<button onclick='dashboardFocusCategory(${JSON.stringify(selectedKey)},${JSON.stringify(label)})' class="w-full text-left mb-3"><div class="flex justify-between text-xs font-bold text-slate-700 mb-1"><span class="truncate pr-2">${v2EscapeHtml(label)}</span><span>${count}</span></div><div class="h-4 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:${(count / max) * 100}%"></div></div></button>`).join('')}</div>`;
+    const peopleHtml = people.length ? people.map(person => `<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0"><div class="min-w-0"><p class="text-xs font-bold truncate"><i class="fa-solid fa-circle text-[8px] ${person.online ? 'text-emerald-500' : 'text-slate-300'} mr-1"></i>${v2EscapeHtml(person.display_name || person.email || 'ผู้สำรวจ')}</p><p class="text-[10px] text-slate-400">${person.online ? 'ออนไลน์ล่าสุด' : 'ไม่อยู่ล่าสุด'} · ${person.count} การสำรวจ</p></div><b class="text-sm text-slate-700">${person.count}</b></div>`).join('') : '<p class="text-sm text-slate-400">ยังไม่พบรายชื่อผู้สำรวจ</p>';
+    const statusHtml = statusCounts.map(([status, count]) => `<div class="flex justify-between text-xs py-1"><span>${statusLabels[status]}</span><b>${count}</b></div>`).join('');
+    const trendHtml = trendItems.length ? `<div class="h-40 flex items-end gap-1 overflow-x-auto">${trendItems.map(([date, count]) => `<div class="min-w-8 flex-1 h-full flex flex-col justify-end items-center"><span class="text-[9px] font-bold">${count}</span><div class="w-full max-w-7 bg-blue-500 rounded-t" style="height:${Math.max(8, count / trendMax * 110)}px"></div><span class="text-[8px] text-slate-400 mt-1 whitespace-nowrap">${date.slice(5)}</span></div>`).join('')}</div>` : '<p class="text-sm text-slate-400 py-8 text-center">ยังไม่มีข้อมูลแนวโน้ม</p>';
+    container.innerHTML = `${cards}${controls}<div class="grid lg:grid-cols-2 gap-4"><section class="bg-white rounded-2xl border border-slate-200 p-4"><h2 class="font-black text-slate-800 mb-4">กราฟผลสำรวจ${selectedField ? `: ${v2EscapeHtml(selectedField.label)}` : ''}</h2>${chart}</section><section class="bg-white rounded-2xl border border-slate-200 p-4"><h2 class="font-black text-slate-800 mb-3">ผู้สำรวจและผลงาน</h2>${peopleHtml}</section><section class="bg-white rounded-2xl border border-slate-200 p-4"><h2 class="font-black text-slate-800 mb-3">สถานะแปลง</h2>${statusHtml}</section><section class="bg-white rounded-2xl border border-slate-200 p-4"><h2 class="font-black text-slate-800 mb-3">แนวโน้ม 14 วันล่าสุด</h2>${trendHtml}</section></div>`;
 }
 
 function dashboardFocusCategory(fieldKey, label) {
@@ -7482,6 +7531,7 @@ function v2ComposeJobs() {
                 search_text: `${plot.search_text || ''} ${v2SearchText(recordProps)} ${record?.note || ''}`.toLocaleLowerCase('th'),
                 navigator_id: record?.navigator_id || null,
                 navigator_name: record?.navigator_name || null,
+                recorded_by: record?.recorded_by || null,
                 is_custom_draw: sourceProps.is_custom_draw === true
             }
         };
