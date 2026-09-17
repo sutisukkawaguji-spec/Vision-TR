@@ -767,6 +767,14 @@
             visibility: hidden !important;
         }
 
+        /* Geoman's short instructional badge is redundant with the active
+           tool highlight and gets in the way of drawing on small screens. */
+        #map .leaflet-pm-tooltip,
+        #map .leaflet-pm-draw-tooltip,
+        #map .leaflet-pm-tooltip-container {
+            display: none !important;
+        }
+
         @keyframes pulse-border {
             0% {
                 box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4);
@@ -2396,7 +2404,7 @@
         }
     </script>
     <script src="config.js?v=3.2.1" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.69" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.70" charset="UTF-8"></script>
 </body>
 
 </html>
