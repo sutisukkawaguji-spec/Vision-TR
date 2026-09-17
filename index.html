@@ -1552,6 +1552,11 @@
     </button>
 
     <div id="fab-container" class="fab-col">
+        <button id="btn-toggle-pm" class="btn-fab bg-purple-600 text-white" type="button"
+            onclick="toggleGeomanToolbar(document.querySelector('.leaflet-bottom.leaflet-right')?.classList.contains('pm-hidden'))"
+            title="ซ่อนเครื่องมือ" aria-label="ซ่อนเครื่องมือ">
+            <i class="fa-solid fa-xmark"></i><span class="pm-toggle-label">ซ่อน</span>
+        </button>
         <button class="btn-fab bg-gray-800 text-white" onclick="openToolsMenu()"><i
                 class="fa-solid fa-gear"></i></button>
         <button class="btn-fab bg-blue-500 text-white" onclick="findNearestNewJob()"><i
@@ -2402,7 +2407,7 @@
         }
     </script>
     <script src="config.js?v=3.2.1" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.71" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.72" charset="UTF-8"></script>
 </body>
 
 </html>

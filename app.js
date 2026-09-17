@@ -1301,7 +1301,7 @@ function initApp() {
         const isEnabled = localStorage.getItem('survey_speech_enabled') !== 'false';
         const chkEnableSpeech = document.getElementById('chk-enable-speech');
         if (chkEnableSpeech) chkEnableSpeech.checked = isEnabled;
-        toggleGeomanToolbar(true);
+        toggleGeomanToolbar(localStorage.getItem('survey_pm_toolbar_visible') !== 'false');
     }
 }
 
@@ -4589,17 +4589,8 @@ function toggleGeomanToolbar(show) {
     ensureGeomanToolbarPositioning();
     positionGeomanToolbars();
 
-    let isCurrentlyHidden = false;
-    if (container) {
-        isCurrentlyHidden = container.classList.contains('pm-hidden');
-    } else if (toolbars.length > 0) {
-        isCurrentlyHidden = toolbars[0].classList.contains('hidden');
-    }
-
-    // This toolbar is permanently available. Keep this function as a safe
-    // compatibility entry point for old cached buttons/calls.
-    const shouldHide = false;
-    localStorage.setItem('survey_pm_toolbar_visible', 'true');
+    const shouldHide = show === false;
+    localStorage.setItem('survey_pm_toolbar_visible', shouldHide ? 'false' : 'true');
 
     if (container) {
         if (shouldHide) {
@@ -4641,7 +4632,7 @@ window.toggleGeomanToolbar = toggleGeomanToolbar;
 function togglePMEnabledSetting() {
     // Retained for old cached HTML only: drawing tools must stay available.
     localStorage.setItem('survey_enable_pm', 'true');
-    toggleGeomanToolbar(true);
+    toggleGeomanToolbar(localStorage.getItem('survey_pm_toolbar_visible') !== 'false');
 }
 window.togglePMEnabledSetting = togglePMEnabledSetting;
 
