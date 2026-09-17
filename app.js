@@ -663,7 +663,6 @@ window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
 window.pendingNewShapes = [];
 const customDrawingGeometrySaveTimers = new Map();
-const newlyCreatedUnsavedJobIds = new Set();
 const OFFLINE_QUEUE_DB = 'vision-tr-offline-v1';
 let offlineQueueDbPromise = null;
 let isFlushingOfflineQueue = false;
@@ -2028,7 +2027,6 @@ async function saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, 
 
     try {
         await saveJobToSupabase(job);
-        newlyCreatedUnsavedJobIds.add(job.id);
         await syncJobsSilently();
         // Keep the map clear after drawing. The user opens the save panel by
         // tapping the newly created marker or boundary when ready.
@@ -3292,14 +3290,18 @@ function renderDrawingMeasurements(layer, shape, isClosed = false) {
     if (!isClosed) return;
     addMapSideLabel(drawingMeasureGroup, points[points.length - 1], points[0]);
     const area = calculatePolygonArea(points);
-    const center = L.polygon(points).getBounds().getCenter();
-    L.marker(center, {
+    const bounds = L.polygon(points).getBounds();
+    // Put completed-plot area above its boundary so a small plot remains
+    // visible and tappable after drawing.
+    const labelPoint = L.latLng(bounds.getNorth(), bounds.getCenter().lng);
+    L.marker(labelPoint, {
         interactive: false,
         keyboard: false,
         icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
     }).bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, {
         permanent: true,
-        direction: 'center',
+        direction: 'top',
+        offset: [0, -8],
         className: 'ruler-area-tooltip'
     }).addTo(drawingMeasureGroup).openTooltip();
 }
@@ -3368,6 +3370,7 @@ function stopThreePointRectangleMode() {
     threePointRectanglePreviewGroup?.clearLayers();
     map.off('click', onThreePointRectangleClick);
     map.off('mousemove', onThreePointRectangleMove);
+    map.getContainer().style.cursor = '';
     document.getElementById('btn-three-point-rectangle')?.classList.remove('active');
     document.getElementById('btn-three-point-rectangle')?.removeAttribute('aria-pressed');
 }
@@ -3418,6 +3421,7 @@ function startThreePointRectangleMode() {
     disableNativeMapToolModes();
     clearDrawingMeasurements();
     isThreePointRectangleMode = true;
+    map.getContainer().style.cursor = 'crosshair';
     threePointRectanglePoints = [];
     initThreePointRectanglePreview();
     map.on('click', onThreePointRectangleClick);
@@ -3641,6 +3645,7 @@ function updateRulerGraphics() {
         }).bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, {
             permanent: true,
             direction: 'center',
+            offset: [0, 34],
             className: 'ruler-area-tooltip'
         }).addTo(rulerMarkersGroup).openTooltip();
     }
@@ -3931,19 +3936,12 @@ function toggleGeomanToolbar(show) {
     });
 
     if (shouldHide) {
-        // ทำการซ่อนเครื่องมือ
+        // ซ่อนเฉพาะแผงปุ่ม: เครื่องมือที่เลือกอยู่ยังทำงานต่อได้จนกว่า
+        // ผู้ใช้จะกดปุ่มเดิมเพื่อยกเลิกหรือเลือกเครื่องมือใหม่
         if (btn) {
             btn.classList.remove('bg-purple-600', 'text-white');
             btn.classList.add('bg-white', 'text-purple-600');
             renderGeomanToggleButton(btn, false);
-        }
-        // สั่งปิดโหมดทำงานทั้งหมดของ Geoman ซึ่งจะกระตุ้นการบันทึกคิวชั่วคราวโดยอัตโนมัติ
-        if (map && map.pm) {
-            map.pm.disableGlobalEditMode();
-            map.pm.disableGlobalDragMode();
-            map.pm.disableGlobalRotateMode();
-            map.pm.disableGlobalRemovalMode();
-            if (map.pm.Draw) map.pm.Draw.disable();
         }
     } else {
         // แสดงเครื่องมือ
@@ -5011,11 +5009,6 @@ async function closeSheet(e, { preserveSavedState = false } = {}) {
     const shouldRestoreSearch = Boolean(e && restoreSearchAfterSheet);
     restoreSearchAfterSheet = false;
 
-    const closingJobId = selectedJobId;
-    const shouldDiscardNewDrawing = Boolean(
-        e && closingJobId && newlyCreatedUnsavedJobIds.has(closingJobId)
-    );
-
     if (selectedJobId) {
         const job = findJobById(selectedJobId);
         if (job) {
@@ -5056,33 +5049,6 @@ async function closeSheet(e, { preserveSavedState = false } = {}) {
     if (dynamicFields) dynamicFields.innerHTML = '';
     if (dynamicSection) dynamicSection.classList.add('hidden');
     renderImageGallery([], false);
-
-    if (shouldDiscardNewDrawing) {
-        newlyCreatedUnsavedJobIds.delete(closingJobId);
-        justDeletedJobId = closingJobId;
-        isMapClickBlocked = true;
-        try {
-            await deleteJobFromSupabase(closingJobId);
-            dbJobs = dbJobs.filter(job => job.id !== closingJobId);
-            renderMap(false);
-            Swal.fire({
-                toast: true,
-                position: 'top',
-                icon: 'info',
-                title: 'ยกเลิกและลบรูปวาดใหม่แล้ว',
-                timer: 1600,
-                showConfirmButton: false
-            });
-        } catch (error) {
-            newlyCreatedUnsavedJobIds.add(closingJobId);
-            console.error('Discard unsaved drawing error', error);
-            await syncJobsSilently();
-            Swal.fire('ลบรูปวาดใหม่ไม่สำเร็จ', error.message, 'error');
-        } finally {
-            justDeletedJobId = null;
-            isMapClickBlocked = false;
-        }
-    }
 
     if (shouldRestoreSearch) {
         window.setTimeout(() => {
@@ -5716,8 +5682,6 @@ async function saveData() {
             job.updated_at = new Date().toISOString();
 
             await saveJobToSupabase(job);
-            newlyCreatedUnsavedJobIds.delete(job.id);
-
             renderMap();
             closeSheet(null, { preserveSavedState: true });
         }
@@ -5816,8 +5780,6 @@ async function deleteJob() {
 
                 // 2. Delete row from Supabase
                 await deleteJobFromSupabase(job.id);
-                newlyCreatedUnsavedJobIds.delete(job.id);
-
                 // 3. Remove from dbJobs
                 const jobIndex = dbJobs.findIndex(j => j.id === job.id);
                 if (jobIndex !== -1) {
