@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vision-tr-v52';
-const APP_SHELL = ['./', './index.html', './tailwind.min.css?v=1.0.0', './app.js?v=3.4.66', './config.js?v=3.2.1', './dashboard.html', './dashboard.js'];
+const CACHE_NAME = 'vision-tr-v53';
+const APP_SHELL = ['./', './index.html', './tailwind.min.css?v=1.0.0', './app.js?v=3.4.67', './config.js?v=3.2.1', './dashboard.html', './dashboard.js'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all(APP_SHELL.map(url => cache.add(url).catch(() => null)))).then(() => self.skipWaiting()));

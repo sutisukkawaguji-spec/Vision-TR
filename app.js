@@ -2279,6 +2279,18 @@ window.toggleActiveWorkGroupSharing = toggleActiveWorkGroupSharing;
 function stageSurveyFeatureForSave(layer, parentJob, feature) {
     if (!layer || !parentJob) return;
     layer.pendingSurveyFeature = feature;
+    // This child is only a draft until its form is saved.  Keep it above the
+    // parent boundary and explicitly allow the eraser to discard it.
+    const prepareDraft = target => {
+        target.options = target.options || {};
+        target.options.pmIgnore = false;
+        target.options.allowRemoval = true;
+        if (L.PM?.reInitLayer) L.PM.reInitLayer(target);
+        target.pm?.setOptions?.({ allowRemoval: true });
+        target.bringToFront?.();
+    };
+    prepareDraft(layer);
+    if (typeof layer.eachLayer === 'function') layer.eachLayer(prepareDraft);
     if (typeof layer.setStyle === 'function') layer.setStyle({ color: '#ef4444', fillColor: '#ef4444', fillOpacity: .28, weight: 4 });
     const isIndependentParent = parentJob.properties?.is_custom_draw === true;
     layer.bindTooltip?.(isIndependentParent ? 'แตะรายการย่อยอีกครั้งเพื่อบันทึก' : 'แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
@@ -2756,7 +2768,11 @@ function markLayerAsSurveyDrawing(layer, jobId = null) {
     mark(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
     const job = jobId ? findJobById(jobId) : null;
-    setLayerRemovalAllowed(layer, job?.properties?.is_temp === true);
+    // A standalone draft is registered immediately after this function. Use
+    // its stable drawn_temp_ id as well, otherwise it would be mistaken for a
+    // saved layer during those few lines and the eraser would be locked.
+    const isTemporaryDrawing = job?.properties?.is_temp === true || String(jobId || '').startsWith('drawn_temp_');
+    setLayerRemovalAllowed(layer, isTemporaryDrawing);
     // A standalone drawing is a Base Plot of its own.  It needs the Geoman
     // change handlers as well, otherwise Edit Layer only changes the temporary
     // map layer and the next render restores the old geometry from Supabase.
