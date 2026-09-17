@@ -38,6 +38,7 @@
     <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://unpkg.com/tokml@0.4.0/tokml.js"></script>
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -2057,18 +2058,10 @@
                                 <p class="text-[10px] text-emerald-700 mt-0.5">กลุ่มงานปัจจุบัน: <strong id="export-active-work-group">-</strong></p>
                             </div>
                         </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <button onclick="openExportCalendarModal('excel')"
-                                class="bg-white border border-emerald-200 text-emerald-700 py-3 rounded-xl text-xs font-bold shadow-sm hover:bg-emerald-50 active:scale-[0.98] transition">
-                                <i class="fa-solid fa-file-excel mr-1"></i> Excel
-                            </button>
-                            <button onclick="openExportCalendarModal('report')"
+                        <div class="grid grid-cols-1 gap-2">
+                            <button onclick="openExportCalendarModal()"
                                 class="bg-gradient-to-r from-emerald-600 to-teal-600 text-white py-3 rounded-xl text-xs font-bold shadow-md hover:shadow-lg active:scale-[0.98] transition">
-                                <i class="fa-solid fa-file-pdf mr-1"></i> PDF / รายงาน
-                            </button>
-                            <button onclick="openExportCalendarModal('shp')"
-                                class="col-span-2 bg-slate-800 text-white py-3 rounded-xl text-xs font-bold shadow-md hover:bg-slate-900 active:scale-[0.98] transition">
-                                <i class="fa-solid fa-map mr-1"></i> Shapefile (.zip แยก Point / Polygon)
+                                <i class="fa-solid fa-file-export mr-1"></i> ตั้งค่าและส่งออกข้อมูล
                             </button>
                         </div>
                     </div>
@@ -2186,6 +2179,25 @@
             </div>
 
             <div class="p-5 space-y-4">
+                <div class="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3">
+                    <div>
+                        <label class="mb-1 block text-[10px] font-bold text-emerald-800">กลุ่มงานที่ต้องการส่งออก</label>
+                        <select id="export-work-group" onchange="onExportWorkGroupChange()" class="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-slate-700"></select>
+                    </div>
+                    <div>
+                        <label class="mb-1 block text-[10px] font-bold text-emerald-800">ข้อมูลที่ต้องการส่งออก</label>
+                        <div class="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-700">
+                            <label class="flex items-center gap-1 rounded-lg bg-white p-2"><input id="export-format-excel" type="checkbox" checked> Excel</label>
+                            <label class="flex items-center gap-1 rounded-lg bg-white p-2"><input id="export-format-shp" type="checkbox" checked> Shapefile</label>
+                            <label class="flex items-center gap-1 rounded-lg bg-white p-2"><input id="export-format-photos" type="checkbox" checked> ภาพถ่าย</label>
+                            <label class="flex items-center gap-1 rounded-lg bg-white p-2"><input id="export-format-report" type="checkbox"> PDF / รายงาน</label>
+                        </div>
+                    </div>
+                    <div class="flex gap-4 text-[10px] font-bold text-slate-700">
+                        <label class="flex items-center gap-1"><input type="radio" name="export-date-mode" value="all" checked onchange="onExportDateModeChange()"> ส่งออกทั้งหมด</label>
+                        <label class="flex items-center gap-1"><input type="radio" name="export-date-mode" value="date" onchange="onExportDateModeChange()"> เลือกวันที่</label>
+                    </div>
+                </div>
                 <!-- Calendar Navigation -->
                 <div class="flex items-center justify-between">
                     <button onclick="navigateExportCalendar(-1)"
@@ -2231,8 +2243,8 @@
 
                 <!-- Action Buttons -->
                 <div class="modal-grid-2">
-                    <button onclick="confirmExportCalendar(true)" class="modal-btn-secondary">
-                        ส่งออกทั้งหมด
+                    <button onclick="confirmExportCalendar()" class="modal-btn-primary">
+                        <i class="fa-solid fa-file-export mr-1"></i> ส่งออก
                     </button>
                     <button onclick="closeExportCalendarModal()" class="modal-btn-secondary">
                         ยกเลิก
@@ -2371,7 +2383,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.30" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.31" charset="UTF-8"></script>
 </body>
 
 </html>

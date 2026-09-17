@@ -7100,12 +7100,12 @@ function clearAll() {
 
 let calCurrentDate = new Date();
 let calSelectedDate = null;
-let calActiveMode = 'excel'; // 'excel', 'report' or 'shp'
+let calExportJobs = [];
+let calExportGroup = null;
 
 function getDatesWithData() {
-    const data = dbJobs.filter(j => j.category === currentUser.category && j.status === 'done');
     const dates = new Map();
-    data.forEach(j => {
+    calExportJobs.filter(j => j.status === 'done').forEach(j => {
         const d = j.properties.date || (j.updated_at ? j.updated_at.split('T')[0] : '');
         if (d) {
             dates.set(d, (dates.get(d) || 0) + 1);
@@ -7114,26 +7114,96 @@ function getDatesWithData() {
     return dates;
 }
 
-function openExportCalendarModal(mode) {
+function v2ComposeExportJobs(group, records) {
+    const mapById = new Map(v2BaseMaps.map(item => [item.id, item]));
+    const recordByPlot = new Map((records || []).map(item => [item.base_plot_id, item]));
+    const mapIds = new Set(v2BaseMaps
+        .filter(baseMap => baseMap.work_group_id === group.id || (!baseMap.work_group_id && group.name === 'ทั่วไป'))
+        .map(baseMap => baseMap.id));
+    return v2BasePlots.filter(plot => {
+        if (!mapIds.has(plot.base_map_id)) return false;
+        const sourceProps = plot.source_properties || {};
+        return sourceProps.is_custom_draw !== true || recordByPlot.has(plot.id) || sourceProps.work_group_id === group.id;
+    }).map(plot => {
+        const record = recordByPlot.get(plot.id);
+        const recordProps = record?.record_properties || {};
+        const baseMap = mapById.get(plot.base_map_id);
+        return {
+            id: plot.id, lat: plot.lat, lng: plot.lng, geometry: plot.geometry,
+            status: record?.status || 'waiting', category: group.name,
+            updated_at: record?.updated_at || plot.updated_at,
+            properties: {
+                ...(plot.source_properties || {}), ...recordProps,
+                name: recordProps.name || plot.display_name,
+                note: record?.note || '', images: record?.images || [],
+                date: record?.recorded_at ? record.recorded_at.split('T')[0] : (recordProps.date || ''),
+                import_source: baseMap?.name || baseMap?.source_name || '',
+                work_group_id: group.id
+            }
+        };
+    });
+}
+
+async function loadExportWorkGroup(groupId) {
+    const group = v2VisibleWorkGroups().find(item => item.id === groupId);
+    if (!group) return;
+    const { data, error } = await supabaseClient.from('plot_records').select('*').eq('work_group_id', group.id);
+    if (error) throw error;
+    calExportGroup = group;
+    calExportJobs = v2ComposeExportJobs(group, data || []);
+    calSelectedDate = null;
+    renderExportCalendar();
+}
+
+async function openExportCalendarModal() {
     closeSettingsModal();
-    calActiveMode = mode;
     calSelectedDate = null;
     calCurrentDate = new Date(); // Reset to today's month
 
     const titleEl = document.getElementById('export-calendar-title');
     if (titleEl) {
-        titleEl.innerHTML = mode === 'excel'
-            ? '<i class="fa-solid fa-file-excel text-green-600"></i> เลือกวันในการออก Excel'
-            : mode === 'shp'
-                ? '<i class="fa-solid fa-map text-slate-700"></i> เลือกวันในการออก Shapefile'
-                : '<i class="fa-solid fa-file-invoice text-blue-600"></i> เลือกวันในการออกรายงาน';
+        titleEl.innerHTML = '<i class="fa-solid fa-file-export text-emerald-600"></i> ตั้งค่าการส่งออก';
     }
+
+    const groupSelect = document.getElementById('export-work-group');
+    if (groupSelect) {
+        const visibleGroups = v2VisibleWorkGroups();
+        groupSelect.innerHTML = visibleGroups.map(group => `<option value="${v2EscapeHtml(group.id)}">${v2EscapeHtml(group.name)}</option>`).join('');
+        groupSelect.value = v2ActiveWorkGroup?.id || visibleGroups[0]?.id || '';
+    }
+    document.getElementById('export-format-excel').checked = true;
+    document.getElementById('export-format-shp').checked = true;
+    document.getElementById('export-format-photos').checked = true;
+    document.getElementById('export-format-report').checked = false;
+    const allDateMode = document.querySelector('input[name="export-date-mode"][value="all"]');
+    if (allDateMode) allDateMode.checked = true;
 
     const actionContainer = document.getElementById('cal-action-container');
     if (actionContainer) actionContainer.classList.add('hidden');
-
-    renderExportCalendar();
     document.getElementById('export-calendar-modal').classList.add('active');
+    onExportDateModeChange();
+    try {
+        await loadExportWorkGroup(groupSelect?.value);
+    } catch (error) {
+        Swal.fire('โหลดข้อมูลส่งออกไม่สำเร็จ', error.message, 'error');
+    }
+}
+
+async function onExportWorkGroupChange() {
+    try {
+        showLoading(true, 'กำลังโหลดข้อมูลกลุ่มงาน...');
+        await loadExportWorkGroup(document.getElementById('export-work-group')?.value);
+    } catch (error) {
+        Swal.fire('โหลดข้อมูลส่งออกไม่สำเร็จ', error.message, 'error');
+    } finally { showLoading(false); }
+}
+
+function onExportDateModeChange() {
+    const dateMode = document.querySelector('input[name="export-date-mode"]:checked')?.value;
+    const calendar = document.getElementById('cal-days-grid')?.parentElement?.parentElement;
+    if (calendar) calendar.classList.toggle('opacity-40', dateMode !== 'date');
+    const action = document.getElementById('cal-action-container');
+    if (dateMode !== 'date') action?.classList.add('hidden');
 }
 
 function closeExportCalendarModal() {
@@ -7198,6 +7268,7 @@ function renderExportCalendar() {
 }
 
 function selectExportDate(dateStr) {
+    if (document.querySelector('input[name="export-date-mode"]:checked')?.value !== 'date') return;
     calSelectedDate = dateStr;
 
     // Format for display
@@ -7218,32 +7289,23 @@ function selectExportDate(dateStr) {
     renderExportCalendar();
 }
 
-function confirmExportCalendar(exportAll = false) {
-    let data = [];
-    if (exportAll) {
-        data = dbJobs.filter(j => j.category === currentUser.category && j.status === 'done');
-        if (data.length === 0) {
-            return Swal.fire('ไม่มีข้อมูล', 'ไม่มีข้อมูลงานเสร็จสิ้นเพื่อส่งออก', 'warning');
-        }
-    } else {
-        if (!calSelectedDate) {
-            return Swal.fire('กรุณาเลือกวัน', 'คุณยังไม่ได้เลือกวันที่ต้องการส่งออก', 'warning');
-        }
-        data = dbJobs.filter(j => {
-            const d = j.properties.date || (j.updated_at ? j.updated_at.split('T')[0] : '');
-            return j.category === currentUser.category && j.status === 'done' && d === calSelectedDate;
-        });
-        if (data.length === 0) {
-            return Swal.fire('ไม่มีข้อมูล', 'ไม่มีข้อมูลงานเสร็จสิ้นในวันที่เลือก', 'warning');
-        }
-    }
+function getExportImageEntries(job) {
+    const entries = [];
+    const append = (images, scope) => (images || []).forEach((image, index) => {
+        const url = typeof image === 'string' ? image : image?.url;
+        if (!url) return;
+        const publicId = typeof image === 'object' ? image?.public_id : getPublicIdFromUrl(url);
+        const sourceName = String(publicId || url.split('?')[0].split('/').pop() || `image_${index + 1}`);
+        const extension = (url.split('?')[0].match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'jpg').toLowerCase();
+        entries.push({ url, name: `${scope}_${String(index + 1).padStart(2, '0')}_${sourceName.replace(/[^a-zA-Z0-9ก-๙_.-]+/g, '_')}.${extension}`.replace(/\.(jpg|jpeg|png|webp)\.(jpg|jpeg|png|webp)$/i, '.$2') });
+    });
+    append(job.properties?.images, `plot_${job.id}`);
+    (job.properties?.survey_features || []).forEach((feature, index) => append(feature?.images, `feature_${job.id}_${index + 1}`));
+    return entries;
+}
 
-    closeExportCalendarModal();
-
-    if (calActiveMode === 'excel') {
-        const suffix = exportAll ? 'ALL' : calSelectedDate;
-        const f = `SURVEY_${currentUser.category}_${suffix}`;
-        const r = data.map(j => {
+function buildExcelExportRows(data) {
+    return data.map(j => {
             const sourceColumns = {};
             Object.entries(j.properties || {}).forEach(([key, value]) => {
                 if (!['images', 'search_text'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value))) {
@@ -7271,6 +7333,9 @@ function confirmExportCalendar(exportAll = false) {
                 Lng: j.lng,
                 Date: j.properties.date || (j.updated_at ? j.updated_at.split('T')[0] : ''),
                 SurveyFeatureCount: Array.isArray(j.properties.survey_features) ? j.properties.survey_features.length : 0,
+                ImageCount: getExportImageEntries(j).length,
+                ImageFileNames: getExportImageEntries(j).map(image => image.name).join('; '),
+                ImageURLs: getExportImageEntries(j).map(image => image.url).join('; '),
                 SurveyFeaturesGeoJSON: JSON.stringify((j.properties.survey_features || []).map(feature => ({
                     id: feature.id,
                     shape: feature.shape,
@@ -7280,17 +7345,74 @@ function confirmExportCalendar(exportAll = false) {
                 })))
             };
         });
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(r), "Data");
-        XLSX.writeFile(wb, f + '.xlsx');
-    } else if (calActiveMode === 'shp') {
-        exportSurveyShapefile(data, exportAll ? 'ALL' : calSelectedDate);
-    } else {
-        generateReport(data);
-    }
 }
 
-function exportSurveyShapefile(jobs, suffix = 'ALL') {
+async function exportSurveyPhotos(jobs, filePrefix) {
+    const images = jobs.flatMap(job => getExportImageEntries(job));
+    if (!images.length) return Swal.fire('ไม่พบภาพถ่าย', 'ไม่มีภาพถ่ายในข้อมูลที่เลือกส่งออก', 'info');
+    if (!window.JSZip) return Swal.fire('ไม่สามารถรวมภาพถ่าย', 'ไลบรารีจัดเก็บไฟล์ยังโหลดไม่สำเร็จ กรุณารีเฟรชแล้วลองใหม่', 'error');
+    showLoading(true, `กำลังเตรียมภาพถ่าย ${images.length} รูป...`);
+    try {
+        const zip = new JSZip();
+        let completed = 0;
+        await Promise.all(images.map(async (image, index) => {
+            try {
+                const response = await fetch(image.url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                zip.file(image.name || `photo_${index + 1}.jpg`, await response.blob());
+                completed++;
+            } catch (error) {
+                console.warn('ข้ามภาพที่ดาวน์โหลดไม่สำเร็จ', image.url, error);
+            }
+        }));
+        if (!completed) throw new Error('ดาวน์โหลดภาพถ่ายไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์เข้าถึงรูปภาพ');
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filePrefix}_photos.zip`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        if (completed < images.length) Swal.fire('ส่งออกภาพถ่ายแล้ว', `บันทึกได้ ${completed} จาก ${images.length} รูป`, 'warning');
+    } catch (error) {
+        Swal.fire('ส่งออกภาพถ่ายไม่สำเร็จ', error.message, 'error');
+    } finally { showLoading(false); }
+}
+
+function confirmExportCalendar() {
+    const dateMode = document.querySelector('input[name="export-date-mode"]:checked')?.value || 'all';
+    if (dateMode === 'date' && !calSelectedDate) {
+        return Swal.fire('กรุณาเลือกวัน', 'คุณยังไม่ได้เลือกวันที่ต้องการส่งออก', 'warning');
+    }
+    const data = calExportJobs.filter(job => {
+        if (job.status !== 'done') return false;
+        if (dateMode === 'all') return true;
+        const date = job.properties.date || (job.updated_at ? job.updated_at.split('T')[0] : '');
+        return date === calSelectedDate;
+    });
+    if (!data.length) return Swal.fire('ไม่มีข้อมูล', dateMode === 'all' ? 'ไม่มีข้อมูลงานเสร็จสิ้นเพื่อส่งออก' : 'ไม่มีข้อมูลงานเสร็จสิ้นในวันที่เลือก', 'warning');
+    const formats = {
+        excel: document.getElementById('export-format-excel')?.checked,
+        shp: document.getElementById('export-format-shp')?.checked,
+        photos: document.getElementById('export-format-photos')?.checked,
+        report: document.getElementById('export-format-report')?.checked
+    };
+    if (!formats.excel && !formats.shp && !formats.photos && !formats.report) return Swal.fire('กรุณาเลือกประเภทไฟล์', 'เลือกอย่างน้อย Excel, Shapefile, ภาพถ่าย หรือรายงาน', 'warning');
+
+    const suffix = dateMode === 'all' ? 'ALL' : calSelectedDate;
+    const groupName = calExportGroup?.name || currentUser?.category || 'ทั่วไป';
+    const prefix = `SURVEY_${groupName.replace(/[^a-zA-Z0-9ก-๙_-]+/g, '_')}_${suffix}`;
+    closeExportCalendarModal();
+    if (formats.excel) {
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildExcelExportRows(data)), 'Data');
+        XLSX.writeFile(wb, `${prefix}.xlsx`);
+    }
+    if (formats.shp) exportSurveyShapefile(data, suffix, groupName);
+    if (formats.photos) exportSurveyPhotos(data, prefix);
+    if (formats.report) generateReport(data, groupName);
+}
+
+function exportSurveyShapefile(jobs, suffix = 'ALL', workGroupName = null) {
     if (!window.shpwrite) return Swal.fire('ไม่สามารถสร้าง Shapefile', 'ไลบรารีส่งออกยังโหลดไม่สำเร็จ กรุณารีเฟรชแล้วลองใหม่', 'error');
     const allFormFields = [];
     const seenFieldKeys = new Set();
@@ -7299,7 +7421,7 @@ function exportSurveyShapefile(jobs, suffix = 'ALL') {
             ? job.properties.form_schema : (getActiveSurveyForm()?.fields || []);
         schema.forEach(field => { if (!seenFieldKeys.has(field.key)) { seenFieldKeys.add(field.key); allFormFields.push(field); } });
     });
-    const usedNames = new Set(['PLOT_ID', 'WORKGROUP', 'STATUS', 'SURVEY_DT', 'NOTE']);
+    const usedNames = new Set(['PLOT_ID', 'WORKGROUP', 'STATUS', 'SURVEY_DT', 'NOTE', 'IMG_FILES']);
     const fieldMap = new Map();
     allFormFields.forEach((field, index) => {
         let name = String(field.key || `F${index + 1}`).toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 10) || `FIELD${index + 1}`.slice(0, 10);
@@ -7311,10 +7433,11 @@ function exportSurveyShapefile(jobs, suffix = 'ALL') {
     const features = jobs.filter(job => job.geometry).map(job => {
         const props = {
             PLOT_ID: String(job.id).slice(0, 254),
-            WORKGROUP: String(v2ActiveWorkGroup?.name || job.category || '').slice(0, 254),
+            WORKGROUP: String(workGroupName || job.category || '').slice(0, 254),
             STATUS: String(job.status || ''),
             SURVEY_DT: String(job.properties?.date || '').slice(0, 10),
-            NOTE: String(job.properties?.note || '').slice(0, 254)
+            NOTE: String(job.properties?.note || '').slice(0, 254),
+            IMG_FILES: getExportImageEntries(job).map(image => image.name).join('; ').slice(0, 254)
         };
         const formData = job.properties?.form_data || {};
         fieldMap.forEach((dbfName, key) => {
@@ -7324,7 +7447,7 @@ function exportSurveyShapefile(jobs, suffix = 'ALL') {
         return { type: 'Feature', geometry: job.geometry, properties: props };
     });
     if (!features.length) return Swal.fire('ไม่มี Geometry', 'ไม่พบ Point หรือ Polygon สำหรับส่งออก', 'warning');
-    const safeGroup = String(v2ActiveWorkGroup?.name || 'survey').replace(/[^a-zA-Z0-9ก-๙_-]+/g, '_');
+    const safeGroup = String(workGroupName || 'survey').replace(/[^a-zA-Z0-9ก-๙_-]+/g, '_');
     shpwrite.download({ type: 'FeatureCollection', features }, {
         file: `${safeGroup}_${suffix}`,
         folder: `${safeGroup}_${suffix}`,
@@ -7332,13 +7455,13 @@ function exportSurveyShapefile(jobs, suffix = 'ALL') {
     });
 }
 
-function generateReport(jobs) {
+function generateReport(jobs, selectedWorkGroupName = null) {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
         return Swal.fire('ป๊อปอัปถูกบล็อก', 'กรุณาอนุญาตให้เปิดหน้าต่างป๊อปอัปสำหรับเว็บไซต์นี้', 'warning');
     }
 
-    const workGroupName = v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป';
+    const workGroupName = selectedWorkGroupName || v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป';
     const safeWorkGroupName = v2EscapeHtml(workGroupName);
     let html = `
 <!DOCTYPE html>
@@ -8137,6 +8260,8 @@ window.closeExportCalendarModal = closeExportCalendarModal;
 window.navigateExportCalendar = navigateExportCalendar;
 window.selectExportDate = selectExportDate;
 window.confirmExportCalendar = confirmExportCalendar;
+window.onExportWorkGroupChange = onExportWorkGroupChange;
+window.onExportDateModeChange = onExportDateModeChange;
 window.closeImportMappingModal = closeImportMappingModal;
 window.viewFullScreenImage = viewFullScreenImage;
 window.prevGalleryImage = prevGalleryImage;
