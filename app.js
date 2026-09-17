@@ -8914,12 +8914,55 @@ renderImportedMapsList = function () {
         </div>`).join('');
 };
 
+async function getBaseMapRecordSummary(baseMapId) {
+    const plotIds = v2BasePlots.filter(plot => plot.base_map_id === baseMapId).map(plot => plot.id);
+    if (!plotIds.length) return { plotCount: 0, records: [], imageCount: 0, groups: [] };
+    const records = [];
+    const chunkSize = 100;
+    for (let index = 0; index < plotIds.length; index += chunkSize) {
+        const { data, error } = await supabaseClient.from('plot_records')
+            .select('id, work_group_id, images, record_properties')
+            .in('base_plot_id', plotIds.slice(index, index + chunkSize));
+        if (error) throw error;
+        records.push(...(data || []));
+    }
+    const byGroup = new Map();
+    let imageCount = 0;
+    records.forEach(record => {
+        const groupName = v2WorkGroups.find(group => group.id === record.work_group_id)?.name || 'กลุ่มงานเดิม';
+        byGroup.set(groupName, (byGroup.get(groupName) || 0) + 1);
+        imageCount += Array.isArray(record.images) ? record.images.length : 0;
+        (record.record_properties?.survey_features || []).forEach(feature => {
+            imageCount += Array.isArray(feature?.images) ? feature.images.length : 0;
+        });
+    });
+    return { plotCount: plotIds.length, records, imageCount, groups: [...byGroup.entries()] };
+}
+
 deleteImportedMap = async function (baseMapId) {
     const baseMap = v2BaseMaps.find(item => item.id === baseMapId);
     if (!baseMap) return;
+    showLoading(true, 'กำลังตรวจสอบข้อมูลที่เชื่อมกับ Base Map...');
+    let summary;
+    try {
+        summary = await getBaseMapRecordSummary(baseMapId);
+    } catch (error) {
+        Swal.fire('ตรวจสอบข้อมูลไม่สำเร็จ', error.message, 'error');
+        return;
+    } finally { showLoading(false); }
+
+    if (summary.records.length) {
+        const groupRows = summary.groups.map(([name, count]) => `<li>${v2EscapeHtml(name)}: ${count.toLocaleString()} ผลบันทึก</li>`).join('');
+        return Swal.fire({
+            title: 'ยังลบ Base Map ไม่ได้',
+            icon: 'warning',
+            html: `<div class="text-left text-sm text-slate-600"><p>Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” มีข้อมูลเชื่อมอยู่ จึงไม่สามารถลบได้</p><div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><ul class="list-disc space-y-1 pl-5"><li>แปลงใน Base Map: <b>${summary.plotCount.toLocaleString()} แปลง</b></li><li>ผลบันทึก/ผลสำรวจ: <b>${summary.records.length.toLocaleString()} รายการ</b></li><li>รูปภาพที่แนบ: <b>${summary.imageCount.toLocaleString()} รูป</b></li></ul></div><p class="mt-3 text-xs font-bold text-slate-700">แยกตามกลุ่มงาน</p><ul class="mt-1 list-disc pl-5 text-xs">${groupRows}</ul><p class="mt-3 text-xs text-rose-700">หากต้องการลบ Base Map นี้ ต้องลบผลบันทึกที่เกี่ยวข้องทั้งหมดก่อน</p></div>`,
+            confirmButtonText: 'รับทราบ'
+        });
+    }
     const result = await Swal.fire({
         title: 'ลบ Base Map?',
-        text: `ต้องไม่มีผลบันทึกที่เชื่อมกับ “${baseMap.name}” จึงจะลบได้`,
+        html: `<p class="text-sm text-slate-600">Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” มี ${summary.plotCount.toLocaleString()} แปลง และไม่พบผลบันทึกหรือรูปภาพที่เชื่อมอยู่</p><p class="mt-2 text-xs text-rose-700">การลบจะลบขอบเขตแปลงทั้งหมดใน Base Map นี้</p>`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'ลบ Base Map',
@@ -8928,7 +8971,7 @@ deleteImportedMap = async function (baseMapId) {
     });
     if (!result.isConfirmed) return;
     const { error } = await supabaseClient.from('base_maps').delete().eq('id', baseMapId);
-    if (error) return Swal.fire('ลบไม่ได้', 'Base Map นี้มีข้อมูลบันทึกเชื่อมอยู่ หรือคุณไม่มีสิทธิ์ลบ', 'error');
+    if (error) return Swal.fire('ลบ Base Map ไม่สำเร็จ', `ไม่พบผลบันทึกเชื่อมอยู่ แต่ฐานข้อมูลปฏิเสธการลบ: ${v2EscapeHtml(error.message)}`, 'error');
     await syncJobsFromDB(true);
 };
 
