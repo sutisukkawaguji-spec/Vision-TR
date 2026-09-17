@@ -441,6 +441,7 @@ async function handleLogout() {
 
 // --- Data Sync with Supabase ---
 async function syncJobsFromDB(fitBounds = false) {
+    if (window.pendingSurveyFeatureDrafts?.length > 0) return;
     if (!supabaseClient || !currentUser) return;
     showLoading(true, 'กำลังโหลดข้อมูลแปลงสำรวจ...');
     try {
@@ -672,6 +673,7 @@ window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
 window.pendingNewShapes = [];
+window.pendingSurveyFeatureDrafts = [];
 const customDrawingGeometrySaveTimers = new Map();
 const OFFLINE_QUEUE_DB = 'vision-tr-offline-v1';
 let offlineQueueDbPromise = null;
@@ -813,6 +815,22 @@ function removeDraftDrawingLayer(layer) {
     if (typeof layer.remove === 'function') layer.remove();
     if (map?.hasLayer?.(layer)) map.removeLayer(layer);
     if (markersGroup?.hasLayer?.(layer)) markersGroup.removeLayer(layer);
+}
+
+function removePendingSurveyFeatureDraft(featureId, { removeLayer = false } = {}) {
+    const drafts = window.pendingSurveyFeatureDrafts || [];
+    const draft = drafts.find(item => item.feature?.id === featureId);
+    window.pendingSurveyFeatureDrafts = drafts.filter(item => item.feature?.id !== featureId);
+    if (removeLayer && draft?.layer) removeDraftDrawingLayer(draft.layer);
+}
+
+function restorePendingSurveyFeatureDrafts() {
+    (window.pendingSurveyFeatureDrafts || []).forEach(({ layer }) => {
+        if (!layer || !map) return;
+        if (!map.hasLayer(layer)) layer.addTo(map);
+        layer.bringToFront?.();
+        if (typeof layer.eachLayer === 'function') layer.eachLayer(child => child.bringToFront?.());
+    });
 }
 
 // The Geoman eraser is deliberately limited to unsaved drafts.  A persisted
@@ -1141,6 +1159,11 @@ function initApp() {
         // เพื่อป้องกันการลบข้อมูลถาวรจากการแตะบนแผนที่โดยไม่ตั้งใจ
         map.on('pm:remove', async (e) => {
             const removedLayer = e.layer;
+            if (removedLayer.pendingSurveyFeatureId) {
+                removePendingSurveyFeatureDraft(removedLayer.pendingSurveyFeatureId);
+                clearDrawingMeasurements();
+                return;
+            }
             if (removedLayer.surveyFeatureId && removedLayer.parentJobId) {
                 restoreProtectedSavedLayers();
                 return;
@@ -2289,6 +2312,10 @@ window.toggleActiveWorkGroupSharing = toggleActiveWorkGroupSharing;
 function stageSurveyFeatureForSave(layer, parentJob, feature) {
     if (!layer || !parentJob) return;
     layer.pendingSurveyFeature = feature;
+    layer.pendingSurveyFeatureId = feature.id;
+    layer.pendingParentJobId = parentJob.id;
+    window.pendingSurveyFeatureDrafts = (window.pendingSurveyFeatureDrafts || []).filter(item => item.feature?.id !== feature.id);
+    window.pendingSurveyFeatureDrafts.push({ layer, parentJobId: parentJob.id, feature });
     // This child is only a draft until its form is saved.  Keep it above the
     // parent boundary and explicitly allow the eraser to discard it.
     const prepareDraft = target => {
@@ -2301,6 +2328,9 @@ function stageSurveyFeatureForSave(layer, parentJob, feature) {
     };
     prepareDraft(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(prepareDraft);
+    // Geoman can finish adding its SVG path after pm:create; bring it forward
+    // once more on the next frame so the parent polygon cannot receive taps.
+    window.setTimeout(() => restorePendingSurveyFeatureDrafts(), 0);
     if (typeof layer.setStyle === 'function') layer.setStyle({ color: '#ef4444', fillColor: '#ef4444', fillOpacity: .28, weight: 4 });
     const isIndependentParent = parentJob.properties?.is_custom_draw === true;
     layer.bindTooltip?.(isIndependentParent ? 'แตะรายการย่อยอีกครั้งเพื่อบันทึก' : 'แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
@@ -2423,6 +2453,7 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
         };
         job.properties.survey_features = existing ? current.map(item => item.id === featureId ? savedFeature : item) : [...current, savedFeature];
         await saveJobToSupabase(job);
+        if (!existing) removePendingSurveyFeatureDraft(savedFeature.id, { removeLayer: true });
         await syncJobsSilently();
         clearDrawingMeasurements();
         const refreshedJob = findJobById(job.id);
@@ -5034,6 +5065,7 @@ function renderMap(fitBounds = false) {
             map.fitBounds(group.getBounds(), { padding: [50, 50] });
         } catch (e) { }
     }
+    restorePendingSurveyFeatureDrafts();
     if (!mapLabelsAreMoving) queueMapLabelRefresh(0);
     updateCounter();
 }
@@ -8969,7 +9001,7 @@ syncJobsFromDB = async function (fitBounds = false) {
 syncJobsSilently = async function () {
     // Do not redraw while a newly drawn pin/boundary is waiting for the user
     // to open its form. A redraw would remove that local draft from the map.
-    if (window.pendingNewShapes?.length > 0 || window.pendingGeomanUpdates?.size > 0) return;
+    if (window.pendingNewShapes?.length > 0 || window.pendingSurveyFeatureDrafts?.length > 0 || window.pendingGeomanUpdates?.size > 0) return;
     if (!supabaseClient || !currentUser || isNavigating || isMapClickBlocked) return;
     try {
         const { data: profile } = await supabaseClient.from('profiles').select('team_id').eq('id', currentUser.id).maybeSingle();
