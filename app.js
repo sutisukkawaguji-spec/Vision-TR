@@ -8740,8 +8740,21 @@ saveJobToSupabase = async function (job) {
         recorded_at: recordedAt,
         updated_at: new Date().toISOString()
     };
-    const { error } = await supabaseClient.from('plot_records').upsert(payload, { onConflict: 'base_plot_id,work_group_id' });
+    // Read the saved record back in the same request. This is essential for
+    // every drawing tool (marker, polygon, rectangles and circle): rendering
+    // from this confirmed record prevents a background refresh from dropping
+    // its geometry/child drawing before a later fetch catches up.
+    const { data: savedRecord, error } = await supabaseClient
+        .from('plot_records')
+        .upsert(payload, { onConflict: 'base_plot_id,work_group_id' })
+        .select()
+        .single();
     if (error) throw error;
+    const recordIndex = v2PlotRecords.findIndex(item => item.base_plot_id === plot.id && item.work_group_id === group.id);
+    if (recordIndex >= 0) v2PlotRecords[recordIndex] = savedRecord;
+    else v2PlotRecords.push(savedRecord);
+    dbJobs = v2ComposeJobs();
+    renderMap(false);
 };
 
 deleteJobFromSupabase = async function (id) {
@@ -8974,11 +8987,14 @@ getFilteredJobs = function () {
         const haystack = `${job.id} ${job.category} ${properties.search_text || v2SearchText(properties)}`.toLocaleLowerCase('th');
         const valueA = String(properties.amphoe || properties.AMPH_NAME || properties.AMPHOE || properties.district || '').trim();
         const valueT = String(properties.tambon || properties.TUMB_NAME || properties.TAMBON || properties.subdistrict || '').trim();
-        return job.category === currentUser.category
-            && (!searchQuery.savedOnly || v2JobHasSavedSurvey(job))
+        const isSavedCustomDrawing = properties.is_custom_draw === true && job.status === 'done';
+        const matchesBaseMapFilters = (!searchQuery.savedOnly || v2JobHasSavedSurvey(job))
             && (!searchTerms.length || searchTerms.every(term => haystack.includes(term)))
             && (!amphoe || valueA === amphoe)
             && (!tambon || valueT === tambon);
+        // Search/facet filters target Base Map lists. Keep saved drawings in
+        // the current work group visible so they never look deleted on save.
+        return job.category === currentUser.category && (isSavedCustomDrawing || matchesBaseMapFilters);
     });
 };
 
