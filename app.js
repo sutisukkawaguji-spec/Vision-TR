@@ -1125,7 +1125,7 @@ function initApp() {
                 lng,
                 radius: isCircle ? radius : 0,
                 layer_type: getActiveSurveyLayerSettings().type,
-                layer_color: getActiveSurveyLayerSettings().color,
+                layer_color: getSurveyLayerColorForShape(shape),
                 status: 'pending',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
@@ -2223,7 +2223,7 @@ async function saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, 
             source_type: 'standalone_survey',
             drawing_shape: shape,
             form_layer_type: getActiveSurveyLayerSettings().type,
-            form_layer_color: getActiveSurveyLayerSettings().color
+            form_layer_color: getSurveyLayerColorForShape(shape)
         }
     };
 
@@ -2406,7 +2406,7 @@ function createFixedSurveyPointMarker(latlng, color, fillOpacity = 0.9) {
 
 function createSurveyFeatureLayer(job, feature) {
     const isSurveyed = feature.status === 'done' || job.status === 'done';
-    const completedColor = normalizeSurveyLayerColor(feature.layer_color || job.properties?.form_layer_color || getActiveSurveyLayerSettings().color);
+    const completedColor = normalizeSurveyLayerColor(feature.layer_color || job.properties?.form_layer_color || getSurveyLayerColorForShape(feature.shape));
     const style = isSurveyed
         ? { color: completedColor, fillColor: completedColor, weight: 3, fillOpacity: 0.38, pmIgnore: false }
         : { color: '#dc2626', fillColor: '#ef4444', weight: 3, fillOpacity: 0.34, pmIgnore: false };
@@ -4466,7 +4466,7 @@ function renderMap(fitBounds = false) {
         let layer;
         const surveyFeatures = Array.isArray(job.properties?.survey_features) ? job.properties.survey_features : [];
         const hasChildSurveyFeatures = job.properties?.is_custom_draw !== true && surveyFeatures.length > 0;
-        const completedLayerColor = normalizeSurveyLayerColor(job.properties?.form_layer_color || getActiveSurveyLayerSettings().color);
+        const completedLayerColor = normalizeSurveyLayerColor(job.properties?.form_layer_color || getSurveyLayerColorForGeometry(job.geometry));
         let color = job.properties?.is_custom_draw === true && job.status === 'done' ? completedLayerColor
             : job.status === 'done' ? '#10b981'
             : (job.status === 'navigating' || job.status === 'checking') ? '#f97316'
@@ -4889,8 +4889,10 @@ function renderDynamicSurveyForm(job) {
     const fields = Array.isArray(form?.fields) ? [...form.fields].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)) : [];
     if (!section || !container) return;
     if (!fields.length) {
-        section.classList.add('hidden');
-        container.innerHTML = '';
+        section.classList.remove('hidden');
+        container.innerHTML = form
+            ? '<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">แบบฟอร์มนี้ยังไม่มีช่องกรอกเพิ่มเติม คุณยังบันทึกสถานะ หมายเหตุ รูปถ่าย และพิกัดได้ตามปกติ</div>'
+            : '<div class="rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs text-violet-800"><b>ยังไม่ได้สร้างแบบฟอร์มบันทึกข้อมูล</b><p class="mt-1 text-[10px] text-violet-700">หากต้องการช่องกรอกข้อมูลเพิ่มเติมหรือ Dropdown ให้สร้างแบบฟอร์มสำหรับกลุ่มงานนี้</p><button type="button" onclick="openSurveyFormBuilderFromSheet()" class="mt-2 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[10px] font-bold text-white"><i class="fa-solid fa-table-list mr-1"></i>สร้างแบบฟอร์ม</button></div>';
         return;
     }
     section.classList.remove('hidden');
@@ -5740,7 +5742,7 @@ async function saveData() {
     job.properties.form_version = dynamicForm.version;
     job.properties.form_schema = dynamicForm.schema;
     job.properties.form_layer_type = getActiveSurveyLayerSettings().type;
-    job.properties.form_layer_color = getActiveSurveyLayerSettings().color;
+    job.properties.form_layer_color = getSurveyLayerColorForGeometry(job.geometry);
 
     if (isNavigating) await stopNav(selectedJobId);
 
@@ -6261,11 +6263,49 @@ function normalizeSurveyLayerColor(value) {
 
 function getActiveSurveyLayerSettings() {
     const form = getActiveSurveyForm();
+    const legacyColor = normalizeSurveyLayerColor(form?.layer_color);
     return {
         type: normalizeSurveyLayerType(form?.layer_type),
-        color: normalizeSurveyLayerColor(form?.layer_color)
+        color: legacyColor,
+        pointColor: normalizeSurveyLayerColor(form?.layer_point_color || legacyColor),
+        polygonColor: normalizeSurveyLayerColor(form?.layer_polygon_color || legacyColor)
     };
 }
+
+function getSurveyLayerColorForShape(shape) {
+    const settings = getActiveSurveyLayerSettings();
+    return shape === 'Marker' || shape === 'Point' ? settings.pointColor : settings.polygonColor;
+}
+
+function getSurveyLayerColorForGeometry(geometry) {
+    return getSurveyLayerColorForShape(geometry?.type === 'Point' ? 'Point' : 'Polygon');
+}
+
+function renderSurveyLayerColorControls(form = getActiveSurveyForm()) {
+    const container = document.getElementById('survey-layer-color-controls');
+    if (!container) return;
+    const legacyColor = normalizeSurveyLayerColor(form?.layer_color);
+    const pointColor = document.getElementById('survey-form-point-color')?.value || normalizeSurveyLayerColor(form?.layer_point_color || legacyColor);
+    const polygonColor = document.getElementById('survey-form-polygon-color')?.value || normalizeSurveyLayerColor(form?.layer_polygon_color || legacyColor);
+    const selectedType = document.getElementById('survey-form-layer-type')?.value || 'both';
+    const colorCard = (id, label, icon, color, inactive) => `<label class="rounded-xl border border-violet-200 bg-white p-2 text-[10px] font-bold text-violet-800 ${inactive ? 'opacity-55' : ''}"><span class="flex items-center gap-1.5"><i class="fa-solid ${icon}"></i>${label}<span id="${id}-swatch" class="ml-auto h-3 w-3 rounded-full border border-slate-300" style="background:${color}"></span></span><input id="${id}" type="color" value="${color}" oninput="updateSurveyLayerColorSwatch('${id}')" class="mt-1 h-8 w-full cursor-pointer rounded-lg border border-violet-100 bg-white p-0.5"></label>`;
+    container.innerHTML = colorCard('survey-form-point-color', 'สี Point', 'fa-location-dot', pointColor, selectedType === 'polygon')
+        + colorCard('survey-form-polygon-color', 'สี Polygon', 'fa-draw-polygon', polygonColor, selectedType === 'point');
+}
+
+function updateSurveyLayerColorSwatch(inputId) {
+    const input = document.getElementById(inputId);
+    const swatch = document.getElementById(`${inputId}-swatch`);
+    if (input && swatch) swatch.style.background = input.value;
+}
+window.renderSurveyLayerColorControls = renderSurveyLayerColorControls;
+window.updateSurveyLayerColorSwatch = updateSurveyLayerColorSwatch;
+
+function openSurveyFormBuilderFromSheet() {
+    openToolsMenu();
+    window.setTimeout(() => switchSettingsTab('form'), 0);
+}
+window.openSurveyFormBuilderFromSheet = openSurveyFormBuilderFromSheet;
 
 function isSurveyShapeAllowed(shape) {
     const layerType = getActiveSurveyLayerSettings().type;
@@ -6424,23 +6464,24 @@ function loadSurveyFormBuilder() {
     if (groupLabel) groupLabel.textContent = v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป';
     if (nameInput) nameInput.value = form?.name || `แบบฟอร์ม ${v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป'}`;
     const layerTypeInput = document.getElementById('survey-form-layer-type');
-    const layerColorInput = document.getElementById('survey-form-layer-color');
     if (layerTypeInput) layerTypeInput.value = normalizeSurveyLayerType(form?.layer_type);
-    if (layerColorInput) layerColorInput.value = normalizeSurveyLayerColor(form?.layer_color);
+    renderSurveyLayerColorControls(form);
     surveyFormDraftBaseline = JSON.stringify(surveyFormDraftFields);
     surveyFormNameBaseline = nameInput?.value || '';
     surveyFormLayerSettingsBaseline = JSON.stringify({
         type: layerTypeInput?.value || 'both',
-        color: layerColorInput?.value || '#10b981'
+        pointColor: document.getElementById('survey-form-point-color')?.value || '#10b981',
+        polygonColor: document.getElementById('survey-form-polygon-color')?.value || '#10b981'
     });
 
     const sourceSelect = document.getElementById('copy-form-source');
     if (sourceSelect) {
-        const sources = v2SurveyForms.filter(item => item.work_group_id !== v2ActiveWorkGroup?.id && Array.isArray(item.fields) && item.fields.length);
+        const visibleGroupIds = new Set(v2VisibleWorkGroups().map(group => group.id));
+        const sources = v2SurveyForms.filter(item => item.work_group_id !== v2ActiveWorkGroup?.id && visibleGroupIds.has(item.work_group_id) && Array.isArray(item.fields) && item.fields.length);
         sourceSelect.innerHTML = sources.length
             ? sources.map(item => {
                 const group = v2WorkGroups.find(entry => entry.id === item.work_group_id);
-                return `<option value="${item.id}">${v2EscapeHtml(group?.name || item.name)}</option>`;
+                return `<option value="${item.id}">${v2EscapeHtml(group?.name || item.name)} — ${item.fields.length} ช่องกรอก</option>`;
             }).join('')
             : '<option value="">ยังไม่มีแบบฟอร์มจากงานอื่น</option>';
     }
@@ -6451,7 +6492,8 @@ function isSurveyFormDraftDirty() {
     const currentName = document.getElementById('survey-form-name')?.value || '';
     const currentLayerSettings = JSON.stringify({
         type: document.getElementById('survey-form-layer-type')?.value || 'both',
-        color: document.getElementById('survey-form-layer-color')?.value || '#10b981'
+        pointColor: document.getElementById('survey-form-point-color')?.value || '#10b981',
+        polygonColor: document.getElementById('survey-form-polygon-color')?.value || '#10b981'
     });
     return currentName !== surveyFormNameBaseline
         || JSON.stringify(surveyFormDraftFields) !== surveyFormDraftBaseline
@@ -6510,15 +6552,16 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
         title: existing ? 'แก้ไขช่องกรอก' : 'เพิ่มช่องกรอก',
         html: `<div class="text-left space-y-2">
             <label class="text-xs font-bold">ชื่อช่อง</label><input id="ff-label" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.label || '')}">
-            <label class="text-xs font-bold">รหัสฟิลด์</label><input id="ff-key" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.key || '')}" placeholder="เช่น owner_name">
+            <label class="text-xs font-bold">รหัสฟิลด์ <span class="font-normal text-gray-400">(ไม่บังคับ)</span></label><input id="ff-key" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.key || '')}" placeholder="เว้นว่างไว้ได้ ระบบกำหนดให้อัตโนมัติ">
             <label class="text-xs font-bold">ประเภทข้อมูล</label><select id="ff-type" class="swal2-select !m-0 !w-full">${typeOptions}</select>
             <div class="p-2.5 rounded-xl border border-violet-200 bg-violet-50">
                 <label class="text-xs font-bold text-violet-800">ฟังก์ชันฟิลด์: ดึงข้อมูลจาก Base Map</label>
                 <select id="ff-source-key" class="swal2-select !m-0 !mt-1 !w-full"><option value="">ไม่ดึงข้อมูลอัตโนมัติ</option>${sourceOptions}</select>
                 <p class="text-[10px] text-violet-600 mt-1">เมื่อสำรวจหรือวาดในแปลง ระบบจะเติมค่าจากคอลัมน์นี้ให้อัตโนมัติ</p>
             </div>
-            <label class="text-xs font-bold">คำแนะนำในช่อง</label><input id="ff-placeholder" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.placeholder || '')}">
+            <label class="text-xs font-bold">คำแนะนำในช่อง <span class="font-normal text-gray-400">(ใส่หรือไม่ใส่ก็ได้)</span></label><input id="ff-placeholder" class="swal2-input !m-0 !w-full" value="${v2EscapeHtml(existing?.placeholder || '')}" placeholder="เช่น ระบุชื่อผู้ครอบครอง">
             <label class="text-xs font-bold">ตัวเลือก Dropdown (หนึ่งรายการต่อบรรทัด)</label><textarea id="ff-options" class="swal2-textarea !m-0 !w-full" rows="4">${v2EscapeHtml(normalizeSurveyFieldOptions(existing?.options).filter(option => option.active).map(option => option.label).join('\n'))}</textarea>
+            <button type="button" id="ff-add-option-line" class="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[10px] font-bold text-violet-700"><i class="fa-solid fa-plus mr-1"></i>เพิ่มตัวเลือกบรรทัดถัดไป</button>
             <p class="text-[10px] text-gray-500">แก้ชื่อในบรรทัดเดิมได้เลย ผลสำรวจเก่าจะเปลี่ยนชื่อให้ด้วย; ลบออกจากรายการจะเก็บเป็นค่าเก่าเพื่อไม่ให้ข้อมูลสูญหาย</p>
             <label class="flex items-center gap-2 text-xs font-bold"><input id="ff-dashboard-group" type="checkbox" ${existing?.dashboard_group ? 'checked' : ''}> ใช้ Dropdown นี้จัดกลุ่มกราฟบน Dashboard</label>
             <label class="flex items-center gap-2 text-xs font-bold"><input id="ff-required" type="checkbox" ${existing?.required ? 'checked' : ''}> จำเป็นต้องกรอก</label>
@@ -6529,6 +6572,13 @@ async function openSurveyFieldEditor(existing = null, index = -1) {
             const typeSelect = document.getElementById('ff-type');
             document.getElementById('ff-options')?.addEventListener('input', event => {
                 if (event.target.value.trim() && !['select', 'multiselect'].includes(typeSelect.value)) typeSelect.value = 'select';
+            });
+            document.getElementById('ff-add-option-line')?.addEventListener('click', () => {
+                const options = document.getElementById('ff-options');
+                if (!options) return;
+                options.value += options.value && !options.value.endsWith('\n') ? '\n' : '';
+                options.focus();
+                if (!['select', 'multiselect'].includes(typeSelect.value)) typeSelect.value = 'select';
             });
         },
         preConfirm: () => {
@@ -6568,7 +6618,10 @@ function copySurveyFormFromWorkGroup() {
     surveyFormDraftFields = JSON.parse(JSON.stringify(source.fields || [])).map((field, index) => ({ ...field, id: `field_${Date.now()}_${index}` }));
     document.getElementById('survey-form-name').value = `${source.name} (สำเนา)`;
     document.getElementById('survey-form-layer-type').value = normalizeSurveyLayerType(source.layer_type);
-    document.getElementById('survey-form-layer-color').value = normalizeSurveyLayerColor(source.layer_color);
+    document.getElementById('survey-form-point-color').value = normalizeSurveyLayerColor(source.layer_point_color || source.layer_color);
+    document.getElementById('survey-form-polygon-color').value = normalizeSurveyLayerColor(source.layer_polygon_color || source.layer_color);
+    updateSurveyLayerColorSwatch('survey-form-point-color');
+    updateSurveyLayerColorSwatch('survey-form-polygon-color');
     renderSurveyFormFieldsList();
 }
 
@@ -6659,7 +6712,8 @@ async function saveSurveyFormDefinition(options = {}) {
     if (!v2ActiveWorkGroup || !currentUser) return;
     const name = document.getElementById('survey-form-name')?.value.trim();
     const layerType = normalizeSurveyLayerType(document.getElementById('survey-form-layer-type')?.value);
-    const layerColor = normalizeSurveyLayerColor(document.getElementById('survey-form-layer-color')?.value);
+    const pointColor = normalizeSurveyLayerColor(document.getElementById('survey-form-point-color')?.value);
+    const polygonColor = normalizeSurveyLayerColor(document.getElementById('survey-form-polygon-color')?.value);
     if (!name) { Swal.fire('กรุณาตั้งชื่อแบบฟอร์ม', '', 'warning'); return false; }
     const existing = getActiveSurveyForm();
     const previousFields = JSON.parse(JSON.stringify(existing?.fields || []));
@@ -6674,7 +6728,9 @@ async function saveSurveyFormDefinition(options = {}) {
                 sort_order: index
             })),
             layer_type: layerType,
-            layer_color: layerColor,
+            layer_color: layerType === 'polygon' ? polygonColor : pointColor,
+            layer_point_color: pointColor,
+            layer_polygon_color: polygonColor,
             created_by: existing?.created_by || currentUser.id,
             updated_at: new Date().toISOString()
         };
@@ -6688,7 +6744,8 @@ async function saveSurveyFormDefinition(options = {}) {
         surveyFormNameBaseline = data.name;
         surveyFormLayerSettingsBaseline = JSON.stringify({
             type: normalizeSurveyLayerType(data.layer_type),
-            color: normalizeSurveyLayerColor(data.layer_color)
+            pointColor: normalizeSurveyLayerColor(data.layer_point_color || data.layer_color),
+            polygonColor: normalizeSurveyLayerColor(data.layer_polygon_color || data.layer_color)
         });
         renderSurveyFormFieldsList();
         Swal.fire({ toast: true, icon: 'success', title: silent ? 'บันทึกแบบฟอร์มอัตโนมัติแล้ว' : `บันทึกแบบฟอร์มเวอร์ชัน ${data.version} แล้ว${migratedCount ? ` · อัปเดตผลเดิม ${migratedCount} รายการ` : ''}`, timer: 2200, showConfirmButton: false });
@@ -8589,7 +8646,7 @@ saveJobToSupabase = async function (job) {
             form_version: props.form_version || existingRecordProperties.form_version || 0,
             form_schema: props.form_schema || existingRecordProperties.form_schema || [],
             form_layer_type: props.form_layer_type || existingRecordProperties.form_layer_type || getActiveSurveyLayerSettings().type,
-            form_layer_color: props.form_layer_color || existingRecordProperties.form_layer_color || getActiveSurveyLayerSettings().color
+            form_layer_color: props.form_layer_color || existingRecordProperties.form_layer_color || getSurveyLayerColorForGeometry(plot.geometry)
         },
         navigator_id: props.navigator_id || null,
         navigator_name: props.navigator_name || null,

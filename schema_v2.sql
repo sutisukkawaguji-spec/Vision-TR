@@ -66,6 +66,8 @@ create table if not exists public.survey_forms (
   fields jsonb not null default '[]'::jsonb,
   layer_type text not null default 'both' check (layer_type in ('both', 'point', 'polygon')),
   layer_color text not null default '#10b981' check (layer_color ~ '^#[0-9A-Fa-f]{6}$'),
+  layer_point_color text not null default '#10b981' check (layer_point_color ~ '^#[0-9A-Fa-f]{6}$'),
+  layer_polygon_color text not null default '#10b981' check (layer_polygon_color ~ '^#[0-9A-Fa-f]{6}$'),
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

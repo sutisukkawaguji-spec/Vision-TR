@@ -1975,20 +1975,16 @@
                         </div>
                         <input id="survey-form-name" type="text" placeholder="ชื่อแบบฟอร์ม"
                             class="w-full p-2.5 border border-violet-200 rounded-xl bg-white text-sm outline-none focus:border-violet-500">
-                        <div class="grid grid-cols-[1fr_auto] gap-2 items-end">
+                        <div class="grid grid-cols-1 gap-2 items-end">
                             <label class="text-[10px] font-bold text-violet-800">
                                 ชนิดเลเยอร์ของแบบฟอร์ม
-                                <select id="survey-form-layer-type" class="mt-1 w-full p-2.5 border border-violet-200 rounded-xl bg-white text-xs">
+                                <select id="survey-form-layer-type" onchange="renderSurveyLayerColorControls()" class="mt-1 w-full p-2.5 border border-violet-200 rounded-xl bg-white text-xs">
                                     <option value="both">Point และ Polygon (รองรับข้อมูลเดิม)</option>
                                     <option value="point">Point เท่านั้น</option>
                                     <option value="polygon">Polygon เท่านั้น</option>
                                 </select>
                             </label>
-                            <label class="text-[10px] font-bold text-violet-800 text-center">
-                                สีเมื่อบันทึก
-                                <input id="survey-form-layer-color" type="color" value="#10b981"
-                                    class="mt-1 block w-14 h-10 p-1 border border-violet-200 rounded-xl bg-white cursor-pointer">
-                            </label>
+                            <div id="survey-layer-color-controls" class="grid grid-cols-2 gap-2"></div>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
                             <button onclick="addSurveyFormField()" class="bg-violet-600 text-white py-2.5 rounded-xl text-xs font-bold">
@@ -2384,7 +2380,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.33" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.34" charset="UTF-8"></script>
 </body>
 
 </html>
