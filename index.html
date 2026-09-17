@@ -600,6 +600,11 @@
             pointer-events: none !important;
         }
 
+        /* Success toasts must leave the editing map visible behind them. */
+        .swal2-container.swal2-top.swal2-backdrop-show {
+            background: transparent !important;
+        }
+
         .swal2-popup {
             pointer-events: auto !important;
         }
@@ -2380,7 +2385,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.36" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.37" charset="UTF-8"></script>
 </body>
 
 </html>

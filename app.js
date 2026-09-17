@@ -3217,7 +3217,7 @@ async function deleteSurveyData() {
             renderMap();
             showLoading(false);
 
-            await Swal.fire({ toast: true, icon: 'success', title: 'ลบผลการสำรวจและคืนค่าสถานะแล้ว', timer: 1500, showConfirmButton: false });
+            await Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ลบผลการสำรวจและคืนค่าสถานะแล้ว', timer: 1500, showConfirmButton: false });
         } catch (e) {
             showLoading(false);
             Swal.fire('ทำรายการไม่สำเร็จ', e.message, 'error');
@@ -5943,7 +5943,7 @@ async function deleteJob() {
         clearDrawingMeasurements();
         closeSheet();
         showPendingActionsBar();
-        Swal.fire({ toast: true, icon: 'success', title: 'ยกเลิกการวาดเรียบร้อย', timer: 1500, showConfirmButton: false });
+        Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ยกเลิกการวาดเรียบร้อย', timer: 1500, showConfirmButton: false });
         return;
     }
 
@@ -5994,7 +5994,7 @@ async function deleteJob() {
                 clearDrawingMeasurements();
                 renderMap();
                 showLoading(false);
-                await Swal.fire({ toast: true, icon: 'success', title: 'ลบข้อมูลรูปแปลง/หมุดเรียบร้อยแล้ว', timer: 1500, showConfirmButton: false });
+                await Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ลบข้อมูลรูปแปลง/หมุดเรียบร้อยแล้ว', timer: 1500, showConfirmButton: false });
             } catch (e) {
                 showLoading(false);
                 Swal.fire('ล้มเหลวในการลบข้อมูล', e.message, 'error');
