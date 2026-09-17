@@ -1133,7 +1133,9 @@ function initApp() {
                 areaSqm = calculatePolygonAreaInSqm(getFlatCoordinates(layer));
             }
 
-            const parentJob = dbJobs.find(job => isLatLngInJob({ lat, lng }, job));
+            // Prefer a saved independent boundary when a drawing is made
+            // inside it. This makes it a parent parcel with nested records.
+            const parentJob = findDrawingParentJob({ lat, lng });
             if (!parentJob) {
                 stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius, isCircle, areaSqm });
                 return;
@@ -1853,6 +1855,34 @@ function isLatLngInJob(latlng, job) {
     return false;
 }
 
+function getJobFootprintSize(job) {
+    if (job?.properties?.is_circle && Number(job.properties.radius) > 0) {
+        return Math.PI * Number(job.properties.radius) ** 2;
+    }
+    const geometry = job?.geometry;
+    if (!geometry || !['Polygon', 'MultiPolygon'].includes(geometry.type)) return Number.POSITIVE_INFINITY;
+    const rings = geometry.type === 'Polygon' ? [geometry.coordinates?.[0]] : (geometry.coordinates || []).map(polygon => polygon?.[0]);
+    return rings.reduce((total, ring) => {
+        const points = ring || [];
+        const degreeArea = Math.abs(points.reduce((sum, point, index) => {
+        const next = points[(index + 1) % points.length] || point;
+        return sum + (Number(point?.[0]) || 0) * (Number(next?.[1]) || 0) - (Number(next?.[0]) || 0) * (Number(point?.[1]) || 0);
+        }, 0)) / 2;
+        const meanLatitude = points.length ? points.reduce((sum, point) => sum + (Number(point?.[1]) || 0), 0) / points.length : 0;
+        return total + degreeArea * 111320 ** 2 * Math.max(0.01, Math.cos(meanLatitude * Math.PI / 180));
+    }, 0) || Number.POSITIVE_INFINITY;
+}
+
+function findDrawingParentJob(latlng) {
+    const matches = dbJobs.filter(job => isLatLngInJob(latlng, job));
+    // A completed free boundary gets priority over Base Map where they overlap.
+    // Never use an unsaved draft as parent because it has no record yet.
+    const independentParents = matches
+        .filter(job => job.properties?.is_custom_draw === true && job.properties?.is_temp !== true && getJobFootprintSize(job) !== Number.POSITIVE_INFINITY)
+        .sort((a, b) => getJobFootprintSize(a) - getJobFootprintSize(b));
+    return independentParents[0] || matches.find(job => job.properties?.is_custom_draw !== true) || null;
+}
+
 function getSurveyFeatureGeometry(layer, shape) {
     if (shape === 'Marker') {
         const point = layer.getLatLng();
@@ -2095,7 +2125,8 @@ function stageSurveyFeatureForSave(layer, parentJob, feature) {
     if (!layer || !parentJob) return;
     layer.pendingSurveyFeature = feature;
     if (typeof layer.setStyle === 'function') layer.setStyle({ color: '#ef4444', fillColor: '#ef4444', fillOpacity: .28, weight: 4 });
-    layer.bindTooltip?.('แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
+    const isIndependentParent = parentJob.properties?.is_custom_draw === true;
+    layer.bindTooltip?.(isIndependentParent ? 'แตะรายการย่อยอีกครั้งเพื่อบันทึก' : 'แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
     layer.on('click', async event => {
         const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
         if (editing || layer.isOpeningSurveySave) return;
@@ -2372,9 +2403,12 @@ function renderSurveyFeatureList(job) {
     const section = document.getElementById('survey-feature-section');
     const list = document.getElementById('survey-feature-list');
     const count = document.getElementById('survey-feature-count');
+    const heading = document.getElementById('survey-feature-heading');
     if (!section || !list || !count) return;
     const features = Array.isArray(job?.properties?.survey_features) ? job.properties.survey_features : [];
-    count.textContent = `${features.length} รูป`;
+    const isIndependentParent = job?.properties?.is_custom_draw === true;
+    if (heading) heading.innerHTML = `<i class="fa-solid fa-diagram-project mr-1"></i>${isIndependentParent ? 'รายการย่อยในแปลงอิสระนี้' : 'รูปวาดในแปลงนี้'}`;
+    count.textContent = `${features.length} ${isIndependentParent ? 'รายการย่อย' : 'รูป'}`;
     section.classList.toggle('hidden', features.length === 0);
     if (features.length === 0) {
         list.innerHTML = '';
@@ -2388,7 +2422,7 @@ function renderSurveyFeatureList(job) {
             <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-bold">${index + 1}</span>
             <button type="button" onclick="focusSurveyFeature('${job.id}', '${feature.id}')" class="min-w-0 flex-1 text-left">
                 <span class="block text-xs font-bold text-slate-700">${v2EscapeHtml(feature.name || label)}</span>
-                <span class="block text-[10px] text-slate-500">${label} · ${status} · รูป ${(feature.images || []).length}</span>
+                <span class="block text-[10px] text-slate-500">${isIndependentParent ? 'รายการย่อย' : label} · ${status} · รูป ${(feature.images || []).length}</span>
             </button>
             <button type="button" onclick="openSurveyFeatureEditor('${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-blue-600 hover:bg-blue-50" title="แก้ไขรูปวาดนี้" aria-label="แก้ไขรูปวาดนี้"><i class="fa-solid fa-pen"></i></button>
             <button type="button" onclick="deleteSurveyFeatureFromSheet(event, '${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-rose-500 hover:bg-rose-50" title="ลบรูปวาดนี้" aria-label="ลบรูปวาดนี้"><i class="fa-solid fa-trash"></i></button>
@@ -2541,7 +2575,8 @@ function createSurveyFeatureLayer(job, feature) {
     };
     bind(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(bind);
-    layer.bindTooltip(`รูปวาดในแปลง: ${job.properties?.name || job.id}`, { direction: 'top' });
+    const parentLabel = job.properties?.is_custom_draw === true ? 'รายการย่อยในแปลงอิสระ' : 'รูปวาดในแปลง';
+    layer.bindTooltip(`${parentLabel}: ${job.properties?.name || job.id}`, { direction: 'top' });
     if (feature.id === selectedSurveyFeatureId) setTimeout(() => applySurveyFeatureSelection(layer, true), 0);
     return layer;
 }
@@ -4560,7 +4595,7 @@ function renderMap(fitBounds = false) {
     filtered.slice(0, 1500).forEach(job => {
         let layer;
         const surveyFeatures = Array.isArray(job.properties?.survey_features) ? job.properties.survey_features : [];
-        const hasChildSurveyFeatures = job.properties?.is_custom_draw !== true && surveyFeatures.length > 0;
+        const hasChildSurveyFeatures = surveyFeatures.length > 0;
         const completedLayerColor = normalizeSurveyLayerColor(job.properties?.form_layer_color || getSurveyLayerColorForGeometry(job.geometry));
         let color = job.properties?.is_custom_draw === true && job.status === 'done' ? completedLayerColor
             : job.status === 'done' ? '#10b981'
@@ -5076,7 +5111,8 @@ function openSheet(job) {
     const p = job.properties;
     const surveyFeatureCount = Array.isArray(p.survey_features) ? p.survey_features.length : 0;
     document.getElementById('sheet-title').innerText = p.name || 'รายละเอียด';
-    document.getElementById('sheet-meta').innerText = `${p.amphoe || p.AMPH_NAME || '-'} / ${p.tambon || p.TUMB_NAME || '-'} · รูปวาด ${surveyFeatureCount}`;
+    const childLabel = p.is_custom_draw === true ? 'รายการย่อย' : 'รูปวาด';
+    document.getElementById('sheet-meta').innerText = `${p.amphoe || p.AMPH_NAME || '-'} / ${p.tambon || p.TUMB_NAME || '-'} · ${childLabel} ${surveyFeatureCount}`;
     document.getElementById('sheet-name').value = p.name || '';
     document.getElementById('sheet-note').value = p.note || '';
     renderInlineRawData(job);
@@ -5197,7 +5233,8 @@ function openSheetSilently(job) {
     const p = job.properties;
     const surveyFeatureCount = Array.isArray(p.survey_features) ? p.survey_features.length : 0;
     document.getElementById('sheet-title').innerText = p.name || 'รายละเอียด';
-    document.getElementById('sheet-meta').innerText = `${p.amphoe || p.AMPH_NAME || '-'} / ${p.tambon || p.TUMB_NAME || '-'} · รูปวาด ${surveyFeatureCount}`;
+    const childLabel = p.is_custom_draw === true ? 'รายการย่อย' : 'รูปวาด';
+    document.getElementById('sheet-meta').innerText = `${p.amphoe || p.AMPH_NAME || '-'} / ${p.tambon || p.TUMB_NAME || '-'} · ${childLabel} ${surveyFeatureCount}`;
 
     const nameEl = document.getElementById('sheet-name');
     const noteEl = document.getElementById('sheet-note');
