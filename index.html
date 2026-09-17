@@ -466,6 +466,15 @@
             margin-left: 5px;
         }
 
+        .status-work-group {
+            color: #475569;
+            font-weight: 600;
+            max-width: min(34vw, 180px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .survey-feature-selected {
             animation: survey-feature-pulse 1s ease-in-out 3;
             stroke: #f59e0b !important;
@@ -1402,6 +1411,10 @@
                 padding-inline: 7px;
             }
 
+            .status-work-group {
+                max-width: 30vw;
+            }
+
             .control-btn-group {
                 gap: 3px;
             }
@@ -1475,6 +1488,7 @@
             <a id="status-bar" href="dashboard.html" title="เปิด Dashboard สรุปผลสำรวจ" aria-label="เปิด Dashboard สรุปผลสำรวจ">
                 <i class="fa-solid fa-user-gear" style="color: #2563eb;"></i>
                 <span id="user-display">ตั้งค่า</span>
+                <span id="work-group-display" class="status-work-group">กลุ่มงาน: ทั่วไป</span>
                 <span id="job-counter">0/0</span>
                 <i class="fa-solid fa-chart-column text-emerald-600"></i>
             </a>
@@ -2374,7 +2388,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.55" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.56" charset="UTF-8"></script>
 </body>
 
 </html>

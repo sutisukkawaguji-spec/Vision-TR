@@ -1552,6 +1552,16 @@ function resetGps() {
 
 function updateUserInfo() {
     document.getElementById('user-display').innerText = currentUser.name;
+    const activeWorkGroupName = v2ActiveWorkGroup?.name || currentUser.category || 'ทั่วไป';
+    const workGroupDisplay = document.getElementById('work-group-display');
+    if (workGroupDisplay) workGroupDisplay.innerText = `กลุ่มงาน: ${activeWorkGroupName}`;
+    const statusBar = document.getElementById('status-bar');
+    if (statusBar) {
+        const dashboardUrl = v2ActiveWorkGroup?.id ? `dashboard.html?workGroup=${encodeURIComponent(v2ActiveWorkGroup.id)}` : 'dashboard.html';
+        statusBar.href = dashboardUrl;
+        statusBar.title = `กลุ่มงาน: ${activeWorkGroupName} — เปิด Dashboard สรุปผลสำรวจ`;
+        statusBar.setAttribute('aria-label', statusBar.title);
+    }
     document.getElementById('profile-display-name').innerText = currentUser.name;
     document.getElementById('profile-email').innerText = currentUser.email || '-';
     document.getElementById('profile-user-code').innerText = currentUser.user_code || '------';
