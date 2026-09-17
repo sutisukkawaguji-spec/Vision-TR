@@ -658,6 +658,7 @@ let justDeletedJobId = null;
 let isThreePointRectangleMode = false;
 let threePointRectanglePoints = [];
 let threePointRectanglePreviewGroup = null;
+let pendingDrawingToolResume = null;
 window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
 window.pendingGeomanUpdates = new Map();
@@ -1070,12 +1071,12 @@ function initApp() {
         map.on('pm:create', async (e) => {
             const layer = e.layer;
             const shape = e.shape; // 'Marker', 'Rectangle', 'Polygon', 'Circle'
+            const drawingTool = layer._visionThreePointRectangle
+                ? { type: 'three-point-rectangle' }
+                : { type: 'geoman', shape };
 
-            // A completed drawing must be tappable immediately so its save
-            // form can be opened. Leaving Geoman in draw mode makes the next
-            // tap create another feature instead of selecting this one.
-            // The toolbar stays visible; choose the tool again to draw the
-            // next feature.
+            // Pause only long enough to let the user tap this new shape and
+            // complete its form. After a successful save, resume this tool.
             // Leaflet-Geoman finishes attaching the new layer immediately
             // after this event. Defer disabling one tick so it cannot remove
             // the newly created marker/polygon before it is attached.
@@ -1138,6 +1139,7 @@ function initApp() {
             const parentJob = findDrawingParentJob({ lat, lng });
             if (!parentJob) {
                 stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius, isCircle, areaSqm });
+                rememberDrawingToolForSave(layer, drawingTool);
                 return;
             }
 
@@ -1155,6 +1157,7 @@ function initApp() {
                 updated_at: new Date().toISOString()
             };
             stageSurveyFeatureForSave(layer, parentJob, surveyFeature);
+            rememberDrawingToolForSave(layer, drawingTool, surveyFeature.id);
         });
 
         // Drawing and editing are core map controls, so they are always ready.
@@ -1869,6 +1872,35 @@ function isMapDrawingInteractionActive() {
     );
 }
 
+function rememberDrawingToolForSave(layer, tool, featureId = null) {
+    if (!layer || !tool) return;
+    pendingDrawingToolResume = { layer, tool, featureId };
+}
+
+function hasPendingDrawingToolForFeature(featureId) {
+    return Boolean(featureId && pendingDrawingToolResume?.featureId === featureId);
+}
+
+function resumePendingDrawingTool({ layer = null, featureId = null } = {}) {
+    const pending = pendingDrawingToolResume;
+    if (!pending || (layer && pending.layer !== layer) || (featureId && pending.featureId !== featureId)) return false;
+    pendingDrawingToolResume = null;
+    window.setTimeout(() => {
+        if (!map) return;
+        if (pending.tool.type === 'three-point-rectangle') {
+            startThreePointRectangleMode();
+            return;
+        }
+        if (pending.tool.type === 'geoman' && pending.tool.shape && map.pm?.enableDraw) {
+            stopRulerTool();
+            stopThreePointRectangleMode();
+            disableNativeMapToolModes('draw');
+            map.pm.enableDraw(pending.tool.shape);
+        }
+    }, 80);
+    return true;
+}
+
 function getJobFootprintSize(job) {
     if (job?.properties?.is_circle && Number(job.properties.radius) > 0) {
         return Math.PI * Number(job.properties.radius) ** 2;
@@ -2270,7 +2302,15 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
             timer: 2600,
             showConfirmButton: false
         });
-        if (refreshedJob) { selectedSurveyFeatureId = savedFeature.id; openSheet(refreshedJob); focusSurveyFeature(job.id, savedFeature.id, false); }
+        const continueDrawing = hasPendingDrawingToolForFeature(savedFeature.id);
+        if (continueDrawing) {
+            closeSheet(null, { preserveSavedState: true });
+            resumePendingDrawingTool({ featureId: savedFeature.id });
+        } else if (refreshedJob) {
+            selectedSurveyFeatureId = savedFeature.id;
+            openSheet(refreshedJob);
+            focusSurveyFeature(job.id, savedFeature.id, false);
+        }
         return true;
     } catch (error) {
         console.error('Survey feature save error', error);
@@ -3796,6 +3836,7 @@ function onThreePointRectangleClick(event) {
     const corners = getThreePointRectangleCorners(threePointRectanglePoints[0], threePointRectanglePoints[1], event.latlng);
     if (!corners) return;
     const layer = L.polygon(corners, { color: '#7c3aed', fillColor: '#a78bfa', fillOpacity: .22, weight: 3 });
+    layer._visionThreePointRectangle = true;
     stopThreePointRectangleMode();
     layer.addTo(map);
     map.fire('pm:create', { shape: 'Rectangle', layer });
@@ -5909,6 +5950,7 @@ async function saveData() {
             job.properties = queuedJob.properties;
         }
         renderMap(); closeSheet(null, { preserveSavedState: true });
+        if (isTemp) resumePendingDrawingTool({ layer: job.layer });
         Swal.fire({ toast: true, position: 'top', icon: 'info', title: 'บันทึกไว้ในเครื่องแล้ว รอส่งเมื่อออนไลน์', timer: 2600, showConfirmButton: false });
         return;
     }
@@ -6012,6 +6054,7 @@ async function saveData() {
             // Fetch latest data and sync map
             await syncJobsFromDB();
             closeSheet();
+            resumePendingDrawingTool({ layer: job.layer });
             showPendingActionsBar();
         } else {
             job.status = 'done';
@@ -6025,6 +6068,7 @@ async function saveData() {
             await saveJobToSupabase(job);
             renderMap();
             closeSheet(null, { preserveSavedState: true });
+            if (isTemp) resumePendingDrawingTool({ layer: job.layer });
         }
 
         if (job.properties?.is_custom_draw) clearDrawingMeasurements();
