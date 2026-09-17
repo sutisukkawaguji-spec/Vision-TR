@@ -1112,8 +1112,7 @@ function initApp() {
 
             const parentJob = dbJobs.find(job => isLatLngInJob({ lat, lng }, job));
             if (!parentJob) {
-                if (map.hasLayer(layer)) map.removeLayer(layer);
-                await saveStandaloneSurveyDrawing({ shape, geometry, lat, lng, radius, isCircle, areaSqm });
+                stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius, isCircle, areaSqm });
                 return;
             }
 
@@ -2278,6 +2277,58 @@ async function removeSurveyFeatureFromJob(jobId, featureId) {
         Swal.fire('ลบรูปวาดไม่สำเร็จ', error.message, 'error');
     }
     await syncJobsSilently();
+}
+
+// Keep a newly drawn standalone pin/boundary on the map until the user taps it
+// and completes the save form.  Persisting immediately made the drawing vanish
+// on a refresh/error and gave the user no reliable way to enter its details.
+function stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius, isCircle, areaSqm }) {
+    const shapeNames = {
+        Marker: 'หมุดสำรวจอิสระ',
+        Circle: 'วงกลมสำรวจอิสระ',
+        Rectangle: 'พื้นที่สี่เหลี่ยมอิสระ',
+        Polygon: 'รูปแปลงอิสระ'
+    };
+    const job = {
+        id: `drawn_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        team_id: currentUser?.team_id || null,
+        lat,
+        lng,
+        geometry,
+        status: 'waiting',
+        category: v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป',
+        layer,
+        properties: {
+            name: shapeNames[shape] || `พื้นที่สำรวจอิสระ (${shape})`,
+            note: '',
+            images: [],
+            date: '',
+            area: areaSqm > 0 ? formatThaiArea(areaSqm) : '-',
+            is_circle: isCircle === true,
+            radius: isCircle ? Number(radius) || 0 : 0,
+            is_custom_draw: true,
+            is_temp: true,
+            source_type: 'standalone_survey',
+            drawing_shape: shape,
+            form_layer_type: getActiveSurveyLayerSettings().type,
+            form_layer_color: getSurveyLayerColorForShape(shape)
+        }
+    };
+
+    layer.jobId = job.id;
+    markLayerAsSurveyDrawing(layer, job.id);
+    const openSaveForm = event => {
+        const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
+        if (editing) return;
+        if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+        markerJustClicked = true;
+        openSheet(job);
+    };
+    layer.on('click', openSaveForm);
+    if (typeof layer.eachLayer === 'function') layer.eachLayer(child => child.on('click', openSaveForm));
+
+    dbJobs.push(job);
+    window.pendingNewShapes.push(job);
 }
 
 function renderSurveyFeatureList(job) {
@@ -8545,6 +8596,9 @@ syncJobsFromDB = async function (fitBounds = false) {
 };
 
 syncJobsSilently = async function () {
+    // Do not redraw while a newly drawn pin/boundary is waiting for the user
+    // to open its form. A redraw would remove that local draft from the map.
+    if (window.pendingNewShapes?.length > 0 || window.pendingGeomanUpdates?.size > 0) return;
     if (!supabaseClient || !currentUser || isNavigating || isMapClickBlocked) return;
     try {
         const { data: profile } = await supabaseClient.from('profiles').select('team_id').eq('id', currentUser.id).maybeSingle();
