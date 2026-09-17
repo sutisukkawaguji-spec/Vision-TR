@@ -8878,7 +8878,8 @@ importData = async function (input) {
 
 getFilteredJobs = function () {
     const searchMode = document.getElementById('search-mode')?.value || 'data';
-    const searchTerms = searchMode === 'data' ? v2ParsePlotSearchTerms(document.getElementById('inp-search').value || '') : [];
+    const searchQuery = searchMode === 'data' ? v2ParsePlotSearchQuery(document.getElementById('inp-search').value || '') : { terms: [], savedOnly: false };
+    const searchTerms = searchQuery.terms;
     const amphoe = document.getElementById('sel-amphoe').value;
     const tambon = document.getElementById('sel-tambon').value;
     return dbJobs.filter(job => {
@@ -8890,6 +8891,7 @@ getFilteredJobs = function () {
         const valueA = String(properties.amphoe || properties.AMPH_NAME || properties.AMPHOE || properties.district || '').trim();
         const valueT = String(properties.tambon || properties.TUMB_NAME || properties.TAMBON || properties.subdistrict || '').trim();
         return job.category === currentUser.category
+            && (!searchQuery.savedOnly || v2JobHasSavedSurvey(job))
             && (!searchTerms.length || searchTerms.every(term => haystack.includes(term)))
             && (!amphoe || valueA === amphoe)
             && (!tambon || valueT === tambon);
@@ -9015,6 +9017,24 @@ function v2ParsePlotSearchTerms(query) {
     return String(query || '').toLocaleLowerCase('th').split('/').map(term => term.trim()).filter(Boolean).slice(0, 8);
 }
 
+function v2ParsePlotSearchQuery(query) {
+    const rawTerms = v2ParsePlotSearchTerms(query);
+    const savedKeywords = new Set(['บันทึก', 'บันทึกแล้ว', 'ข้อมูลบันทึก', 'สำรวจแล้ว', 'recorded', 'saved']);
+    return {
+        savedOnly: rawTerms.some(term => savedKeywords.has(term)),
+        terms: rawTerms.filter(term => !savedKeywords.has(term))
+    };
+}
+
+function v2JobHasSavedSurvey(job) {
+    const properties = job?.properties || {};
+    return job?.status === 'done'
+        || Boolean(String(properties.note || '').trim())
+        || (Array.isArray(properties.images) && properties.images.length > 0)
+        || Object.keys(properties.form_data || {}).length > 0
+        || (Array.isArray(properties.survey_features) && properties.survey_features.some(feature => feature?.status === 'done'));
+}
+
 function v2MatchingFields(properties, terms) {
     const matches = [];
     Object.entries(properties || {}).forEach(([key, value]) => {
@@ -9053,7 +9073,7 @@ function onSearchModeChange(clearValue = true) {
     if (clearValue) input.value = '';
     selectedPlotSearchJobId = null;
     clearPlotSearchFocus();
-    input.placeholder = mode === 'map' ? 'ค้นหาสถานที่ ร้านค้า หรือที่อยู่...' : 'ค้นหาข้อมูลแปลง...';
+    input.placeholder = mode === 'map' ? 'ค้นหาสถานที่ ร้านค้า หรือที่อยู่...' : 'ค้นหาชื่อแปลง รหัส หรือข้อมูลบันทึก · เช่น บันทึก/ค้างชำระ';
     results.innerHTML = '';
     results.classList.remove('active');
     renderMap(false);
@@ -9195,7 +9215,8 @@ async function selectPlaceSearchResult(index, event) {
 doSearch = async function () {
     const mode = document.getElementById('search-mode')?.value || 'data';
     const search = (document.getElementById('inp-search').value || '').toLocaleLowerCase('th').trim();
-    const plotTerms = mode === 'data' ? v2ParsePlotSearchTerms(search) : [];
+    const plotQuery = mode === 'data' ? v2ParsePlotSearchQuery(search) : { terms: [], savedOnly: false };
+    const plotTerms = plotQuery.terms;
     const results = document.getElementById('search-results');
     results.innerHTML = '';
     if (!search) {
@@ -9244,10 +9265,13 @@ doSearch = async function () {
     }
     results.classList.toggle('active', true);
     if (!hits.length) {
-        results.innerHTML = `<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-magnifying-glass mr-1"></i>ไม่พบแปลงที่ตรงกับ ${plotTerms.map(term => `“${v2EscapeHtml(term)}”`).join(' + ')}<div class="text-[10px] text-gray-400 mt-1">ลองตัดคำบางส่วนออก หรือใช้ / เพื่อค้นหาหลายเงื่อนไข</div></div>`;
+        const searchDescription = plotQuery.savedOnly ? 'เงื่อนไข “มีผลบันทึกแล้ว”' : plotTerms.map(term => `“${v2EscapeHtml(term)}”`).join(' + ');
+        results.innerHTML = `<div class="p-3 text-xs text-gray-500"><i class="fa-solid fa-magnifying-glass mr-1"></i>ไม่พบแปลงที่ตรงกับ ${searchDescription}<div class="text-[10px] text-gray-400 mt-1">ลองตัดคำบางส่วนออก หรือใช้ / เพื่อค้นหาหลายเงื่อนไข</div></div>`;
         return;
     }
-    const scopeHint = plotTerms.length > 1
+    const scopeHint = plotQuery.savedOnly
+        ? `<div class="px-3 py-2 text-[10px] font-bold text-violet-700 bg-violet-50 border-b border-violet-100"><i class="fa-solid fa-floppy-disk mr-1"></i>เฉพาะแปลงที่มีผลบันทึกแล้ว${plotTerms.length ? ` · ค้นหาเพิ่ม: ${plotTerms.map(term => `<span class="inline-block bg-white border border-violet-200 rounded px-1.5 py-0.5 ml-1">${v2EscapeHtml(term)}</span>`).join('')}` : ''} · พบ ${hits.length} แปลง</div>`
+        : plotTerms.length > 1
         ? `<div class="px-3 py-2 text-[10px] font-bold text-emerald-700 bg-emerald-50 border-b border-emerald-100">ค้นหาครบทุกเงื่อนไข: ${plotTerms.map(term => `<span class="inline-block bg-white border border-emerald-200 rounded px-1.5 py-0.5 mr-1">${v2EscapeHtml(term)}</span>`).join('')} · พบ ${hits.length} แปลง</div>`
         : `<div class="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-b">พบ ${hits.length} แปลง · เลื่อนเพื่อดูรายการอื่น</div>`;
     results.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between bg-white border-b border-gray-100 px-3 py-2"><span class="text-[10px] font-bold text-gray-600"><i class="fa-solid fa-location-crosshairs text-emerald-600 mr-1"></i>แตะรายการเพื่อซูมดูแปลง</span><button type="button" onclick="closePlotSearchResults()" class="w-7 h-7 rounded-full text-gray-500 hover:bg-gray-100" aria-label="ปิดผลค้นหา"><i class="fa-solid fa-xmark"></i></button></div>${scopeHint}`;
