@@ -1864,12 +1864,15 @@ function v2VisibleWorkGroups() {
 function renderWorkGroupShareControl() {
     const row = document.getElementById('work-group-share-row');
     const checkbox = document.getElementById('chk-work-group-shared');
+    const deleteButton = document.getElementById('btn-delete-work-group');
     if (!row || !checkbox) return;
     const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
     const group = v2WorkGroups.find(item => item.name === selectedName);
     const canShare = isTeamOwner() && Boolean(group);
     row.classList.toggle('hidden', !canShare);
     checkbox.checked = group?.is_shared === true;
+    const canDelete = Boolean(group && group.name !== 'ทั่วไป' && (isTeamOwner() || group.created_by === currentUser?.id));
+    deleteButton?.classList.toggle('hidden', !canDelete);
 }
 
 function onWorkGroupSelectionChange() {
@@ -1877,6 +1880,78 @@ function onWorkGroupSelectionChange() {
     renderWorkGroupShareControl();
 }
 window.onWorkGroupSelectionChange = onWorkGroupSelectionChange;
+
+function formatBaseMapImportedAt(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return 'ไม่ทราบวันนำเข้า';
+    return date.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+async function createWorkGroupFromMaps() {
+    const maps = v2BaseMaps.filter(item => item.source_name !== '__custom_draw__');
+    const mapOptions = maps.length
+        ? maps.map(item => `<label class="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-2.5 cursor-pointer"><input class="v2-group-map-checkbox mt-0.5 h-4 w-4" type="checkbox" value="${v2EscapeHtml(item.id)}"><span class="min-w-0"><b class="block text-xs text-slate-700 truncate">${v2EscapeHtml(item.name || 'Base Map')}</b><span class="block text-[10px] text-slate-500">${Number(item.feature_count || 0).toLocaleString()} แปลง · นำเข้า ${v2EscapeHtml(formatBaseMapImportedAt(item.imported_at))}</span></span></label>`).join('')
+        : '<p class="text-xs text-slate-500">ยังไม่มี Base Map ที่นำเข้าไว้ สามารถสร้างกลุ่มเปล่าได้</p>';
+    const result = await Swal.fire({
+        title: 'สร้างกลุ่มงานใหม่',
+        html: `<div class="space-y-3 text-left"><div><label class="text-xs font-bold text-slate-700">ชื่อกลุ่มงาน</label><input id="v2-new-group-name" class="swal2-input !m-0 !mt-1 !w-full" placeholder="เช่น สำรวจเดือนตุลาคม"></div>${isTeamOwner() ? '<label class="flex items-center gap-2 text-xs font-bold text-emerald-700"><input id="v2-new-group-shared" type="checkbox" class="h-4 w-4"> แชร์ให้ทีม</label>' : ''}<div><label class="mb-1 block text-xs font-bold text-slate-700">เลือก Base Map ที่ต้องการใช้ในกลุ่มนี้</label><div class="max-h-56 space-y-2 overflow-y-auto pr-1">${mapOptions}</div></div><p class="text-[10px] text-amber-700">Base Map ที่เลือกจะย้ายมาอยู่กลุ่มใหม่นี้ แต่จะไม่ถูกลบ</p></div>`,
+        showCancelButton: true,
+        confirmButtonText: 'สร้างกลุ่มงาน',
+        cancelButtonText: 'ยกเลิก',
+        preConfirm: () => {
+            const name = document.getElementById('v2-new-group-name')?.value.trim();
+            if (!name) return Swal.showValidationMessage('กรุณาระบุชื่อกลุ่มงาน');
+            return {
+                name,
+                isShared: Boolean(document.getElementById('v2-new-group-shared')?.checked),
+                mapIds: Array.from(document.querySelectorAll('.v2-group-map-checkbox:checked')).map(input => input.value)
+            };
+        }
+    });
+    if (!result.isConfirmed) return;
+    showLoading(true, 'กำลังสร้างกลุ่มงาน...');
+    try {
+        const group = await v2EnsureWorkGroup(result.value.name, { isShared: result.value.isShared });
+        if (result.value.mapIds.length) {
+            const { error } = await supabaseClient.from('base_maps').update({ work_group_id: group.id }).in('id', result.value.mapIds);
+            if (error) throw error;
+            v2BaseMaps = v2BaseMaps.map(item => result.value.mapIds.includes(item.id) ? { ...item, work_group_id: group.id } : item);
+        }
+        currentUser.category = group.name;
+        await syncJobsFromDB(true);
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: `สร้างกลุ่มงาน “${group.name}” แล้ว`, timer: 1600, showConfirmButton: false });
+    } catch (error) {
+        Swal.fire('สร้างกลุ่มงานไม่สำเร็จ', error.message, 'error');
+    } finally { showLoading(false); }
+}
+window.createWorkGroupFromMaps = createWorkGroupFromMaps;
+
+async function archiveSelectedWorkGroup() {
+    const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
+    const group = v2WorkGroups.find(item => item.name === selectedName);
+    if (!group || group.name === 'ทั่วไป') return;
+    if (!(isTeamOwner() || group.created_by === currentUser?.id)) return Swal.fire('ไม่มีสิทธิ์ลบกลุ่มงานนี้', '', 'warning');
+    const result = await Swal.fire({
+        title: `ลบกลุ่มงาน “${group.name}”?`,
+        html: '<p class="text-sm text-slate-600">จะนำกลุ่มงานออกจากรายการเท่านั้น<br><b>Base Map และแปลงจะไม่ถูกลบ</b></p>',
+        icon: 'warning', showCancelButton: true,
+        confirmButtonText: 'ลบกลุ่มงาน', cancelButtonText: 'ยกเลิก', confirmButtonColor: '#e11d48'
+    });
+    if (!result.isConfirmed) return;
+    showLoading(true, 'กำลังลบกลุ่มงาน...');
+    try {
+        const { data, error } = await supabaseClient.from('work_groups').update({ is_active: false }).eq('id', group.id).select().single();
+        if (error) throw error;
+        v2WorkGroups = v2WorkGroups.map(item => item.id === data.id ? data : item);
+        const fallback = v2VisibleWorkGroups()[0]?.name || 'ทั่วไป';
+        currentUser.category = fallback;
+        await syncJobsFromDB(true);
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ลบกลุ่มงานแล้ว (เก็บ Base Map ไว้)', timer: 1600, showConfirmButton: false });
+    } catch (error) {
+        Swal.fire('ลบกลุ่มงานไม่สำเร็จ', error.message, 'error');
+    } finally { showLoading(false); }
+}
+window.archiveSelectedWorkGroup = archiveSelectedWorkGroup;
 
 async function toggleActiveWorkGroupSharing(shared) {
     const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
@@ -8562,7 +8637,7 @@ renderImportedMapsList = function () {
         <div class="flex items-center justify-between p-2.5 bg-gray-50 rounded-xl border border-gray-100">
             <div class="min-w-0 flex-1">
                 <p class="text-xs font-bold text-gray-700 truncate">${mapItem.name}</p>
-                <p class="text-[10px] text-gray-500 mt-1">${mapItem.feature_count || 0} แปลง · Base Map</p>
+                <p class="text-[10px] text-gray-500 mt-1">${mapItem.feature_count || 0} แปลง · นำเข้า ${v2EscapeHtml(formatBaseMapImportedAt(mapItem.imported_at))}</p>
             </div>
             <button onclick="deleteImportedMap('${mapItem.id}')" class="text-xs text-red-500 p-1.5" title="ลบ Base Map">
                 <i class="fa-solid fa-trash-can"></i>
