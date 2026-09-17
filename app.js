@@ -1961,7 +1961,7 @@ async function deleteSelectedWorkGroup() {
                 <ul class="mt-1 list-disc space-y-1 pl-5 text-xs"><li>ผลการสำรวจและสถานะของทุกแปลงในกลุ่มนี้</li><li>ข้อความ หมายเหตุ และรายละเอียดการบันทึก</li><li>ภาพถ่ายที่แนบกับการสำรวจ</li><li>แบบฟอร์มบันทึกของกลุ่มงานนี้</li></ul>
             </div>
             <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs"><b class="text-emerald-700">Base Map และขอบเขตแปลงจะไม่ถูกลบ</b><br>ระบบจะเก็บไว้ให้เลือกนำไปใช้กับกลุ่มงานใหม่ได้</div>
-            <p class="text-xs text-amber-700">หากยังต้องการข้อมูลสำรวจ โปรดส่งออกหรือบันทึกข้อมูลไว้ก่อนลบกลุ่มงาน</p>
+            <div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800"><b>กรุณาสำรองข้อมูลก่อนลบ</b><br>หากยังต้องการข้อมูลสำรวจ โปรดส่งออกหรือบันทึกข้อมูลและรูปถ่ายไว้ก่อนดำเนินการ เพราะเมื่อลบแล้วไม่สามารถกู้คืนได้</div>
         </div>`,
         icon: 'warning', showCancelButton: true,
         confirmButtonText: 'รับทราบและดำเนินการต่อ', cancelButtonText: 'ยกเลิก', confirmButtonColor: '#e11d48'
