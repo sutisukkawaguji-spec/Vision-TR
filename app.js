@@ -1058,6 +1058,13 @@ function initApp() {
             const layer = e.layer;
             const shape = e.shape; // 'Marker', 'Rectangle', 'Polygon', 'Circle'
 
+            // A completed drawing must be tappable immediately so its save
+            // form can be opened. Leaving Geoman in draw mode makes the next
+            // tap create another feature instead of selecting this one.
+            // The toolbar stays visible; choose the tool again to draw the
+            // next feature.
+            map.pm?.Draw?.disable?.();
+
             if (!isSurveyShapeAllowed(shape)) {
                 clearDrawingMeasurements(true);
                 if (map.hasLayer(layer)) map.removeLayer(layer);
