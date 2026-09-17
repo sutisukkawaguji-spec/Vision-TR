@@ -4545,7 +4545,9 @@ function renderMap(fitBounds = false) {
             fill = 0;
         }
         const isUnfinishedCustomDrawing = job.properties?.is_custom_draw === true && job.status !== 'done';
-        if ((viewMode === 'original' || isUnfinishedCustomDrawing) && job.geometry) {
+        // Hand-drawn boundaries are survey results in their own right. Keep
+        // their actual geometry visible even while Base Map parcels use pins.
+        if ((viewMode === 'original' || job.properties?.is_custom_draw === true) && job.geometry) {
             if (job.geometry.type.includes('Polygon')) {
                 layer = L.geoJSON(job.geometry, { style: {
                     color: color,
@@ -5820,7 +5822,7 @@ async function saveData() {
     if (!navigator.onLine) {
         const queuedJob = isTemp ? {
             id: 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9), team_id: currentUser.team_id,
-            lat: job.lat, lng: job.lng, geometry: job.geometry, status: 'done', category: currentUser.category,
+            lat: job.lat, lng: job.lng, geometry: job.geometry, status: 'done', category: job.category || currentUser.category,
             properties: { ...job.properties, name: nameVal || 'แปลงวาดใหม่', note: noteVal || '', date: new Date().toISOString().split('T')[0], is_custom_draw: true, is_temp: false }
         } : {
             id: job.id, team_id: job.team_id, lat: job.lat, lng: job.lng, geometry: job.geometry, status: 'done', category: job.category,
@@ -5900,12 +5902,14 @@ async function saveData() {
                 lng: job.lng,
                 geometry: job.geometry,
                 status: 'done',
-                category: currentUser.category,
+                category: job.category || currentUser.category,
                 properties: {
+                    ...job.properties,
                     name: nameVal || `แปลงวาดใหม่`,
                     note: noteVal || '',
                     date: new Date().toISOString().split('T')[0],
                     is_custom_draw: true,
+                    is_temp: false,
                     navigator_id: null,
                     navigator_name: null,
                     images: job.properties.images || [],
