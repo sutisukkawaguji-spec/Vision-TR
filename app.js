@@ -2327,12 +2327,16 @@ function stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius
 
     layer.jobId = job.id;
     markLayerAsSurveyDrawing(layer, job.id);
+    layer.bindTooltip?.('แตะอีกครั้งเพื่อบันทึก', { direction: 'top', className: 'job-label-pending' });
     const openSaveForm = event => {
         const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
         if (editing) return;
         if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
         markerJustClicked = true;
-        openSheet(job);
+        // Let the map's click handler finish first. It can close the sheet
+        // during the same Leaflet event; opening on the next tick makes a
+        // deliberate tap on the new drawing reliably show its save form.
+        window.setTimeout(() => openSheet(job), 0);
     };
     layer.on('click', openSaveForm);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(child => child.on('click', openSaveForm));
