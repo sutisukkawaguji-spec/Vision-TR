@@ -815,6 +815,22 @@ function removeDraftDrawingLayer(layer) {
     if (markersGroup?.hasLayer?.(layer)) markersGroup.removeLayer(layer);
 }
 
+// The Geoman eraser is deliberately limited to unsaved drafts.  A persisted
+// pin, boundary, or child survey drawing must be deleted from its record card,
+// where the user can review exactly what will be removed.  Geoman emits its
+// remove event after detaching a layer, so restore protected layers on the
+// next frame without showing a disruptive dialog while the eraser is active.
+let protectedLayerRestoreQueued = false;
+function restoreProtectedSavedLayers() {
+    if (protectedLayerRestoreQueued) return;
+    protectedLayerRestoreQueued = true;
+    window.setTimeout(() => {
+        protectedLayerRestoreQueued = false;
+        clearDrawingMeasurements();
+        renderMap();
+    }, 0);
+}
+
 function getFlatCoordinates(layer) {
     try {
         const geojson = layer.toGeoJSON();
@@ -1042,28 +1058,31 @@ function initApp() {
         map.on('pm:globaldragmodetoggled', () => showPendingActionsBar());
         map.on('pm:globalrotatemodetoggled', () => showPendingActionsBar());
 
-        // ดักจับเมื่อมีการลบเลเยอร์ด้วยเครื่องมือลบของ Geoman
+        // ยางลบของ Geoman ใช้ได้กับร่างที่ยังไม่บันทึกเท่านั้น ข้อมูลที่
+        // บันทึกแล้ว (รวมรายการย่อยในแปลง) ต้องลบจากรายการบันทึกเสมอ
+        // เพื่อป้องกันการลบข้อมูลถาวรจากการแตะบนแผนที่โดยไม่ตั้งใจ
         map.on('pm:remove', async (e) => {
             const removedLayer = e.layer;
             if (removedLayer.surveyFeatureId && removedLayer.parentJobId) {
-                await removeSurveyFeatureFromJob(removedLayer.parentJobId, removedLayer.surveyFeatureId, { silent: true });
+                restoreProtectedSavedLayers();
                 return;
             }
             const jobId = removedLayer.jobId;
             if (jobId) {
                 const job = findJobById(jobId);
                 if (job) {
+                    if (job.properties?.is_temp !== true) {
+                        restoreProtectedSavedLayers();
+                        return;
+                    }
                     selectedJobId = jobId;
-                    // Eraser is already an explicit delete action. Do not
-                    // interrupt the next erase tap with a confirmation.
+                    // A temporary drawing has not been persisted, so it can
+                    // be discarded directly without interrupting the next
+                    // eraser tap with a confirmation dialog.
                     await deleteJob({ skipConfirm: true, silent: true });
-                    // หากไม่ได้ทำการลบจริง (เช่น กดยกเลิก) ให้แสดงผลแผนที่ใหม่เพื่อคืนค่าเลเยอร์กลับมา
+                    // หากไม่สามารถลบร่างได้ ให้คืนเลเยอร์ชั่วคราว
                     if (findJobById(jobId)) {
-                        if (job.properties && job.properties.is_temp === true) {
-                            removedLayer.addTo(map);
-                        } else {
-                            renderMap();
-                        }
+                        removedLayer.addTo(map);
                     }
                 }
             }
