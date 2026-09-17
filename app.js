@@ -1547,13 +1547,20 @@ function updateUserInfo() {
     if (selProfileCat) {
         selProfileCat.innerHTML = '';
 
-        let activeCats = (typeof v2WorkGroups !== 'undefined' && v2WorkGroups.length)
+        const rememberedCat = currentUser.category || localStorage.getItem('survey_current_cat') || 'ทั่วไป';
+        const hasLoadedWorkGroups = typeof v2WorkGroups !== 'undefined' && v2WorkGroups.length > 0;
+        let activeCats = hasLoadedWorkGroups
             ? v2VisibleWorkGroups().filter(group => group.is_active !== false).map(group => group.name)
             : Array.from(new Set(dbJobs.map(j => j.category).filter(Boolean)));
         if (!activeCats.includes('ทั่วไป')) {
             activeCats.push('ทั่วไป');
         }
-        const currentCat = activeCats.includes(currentUser.category) ? currentUser.category : activeCats[0];
+        // During first load the work-group list has not arrived yet.  Keep the
+        // user's remembered group instead of accidentally replacing it with "ทั่วไป".
+        if (!hasLoadedWorkGroups && !activeCats.includes(rememberedCat)) {
+            activeCats.push(rememberedCat);
+        }
+        const currentCat = activeCats.includes(rememberedCat) ? rememberedCat : activeCats[0];
         currentUser.category = currentCat;
 
         activeCats.sort();
@@ -1577,7 +1584,7 @@ function updateUserInfo() {
     updateGpsStatus();
 }
 
-async function saveProfileCategory() {
+async function saveProfileCategory({ silent = false } = {}) {
     const selProfileCat = document.getElementById('sel-profile-category');
     if (!selProfileCat) return;
 
@@ -1596,14 +1603,16 @@ async function saveProfileCategory() {
     // Sync from database and re-draw markers with the new category
     await syncJobsFromDB();
 
-    Swal.fire({
-        toast: true,
-        position: 'top',
-        icon: 'success',
-        title: `สลับประเภทงานเป็น: ${newCat}`,
-        timer: 1500,
-        showConfirmButton: false
-    });
+    if (!silent) {
+        Swal.fire({
+            toast: true,
+            position: 'top',
+            icon: 'success',
+            title: `สลับประเภทงานเป็น: ${newCat}`,
+            timer: 1500,
+            showConfirmButton: false
+        });
+    }
 }
 
 
@@ -1876,9 +1885,16 @@ function renderWorkGroupShareControl() {
     deleteButton?.classList.toggle('hidden', !canDelete);
 }
 
-function onWorkGroupSelectionChange() {
+async function onWorkGroupSelectionChange() {
     // The checkbox follows only the group selected in the dropdown.
     renderWorkGroupShareControl();
+
+    // Selecting a group is itself an intention to use that group.  Persist it
+    // immediately, so closing and reopening Settings never falls back to "ทั่วไป".
+    const selectedName = document.getElementById('sel-profile-category')?.value;
+    if (selectedName && selectedName !== currentUser?.category) {
+        await saveProfileCategory({ silent: true });
+    }
 }
 window.onWorkGroupSelectionChange = onWorkGroupSelectionChange;
 
