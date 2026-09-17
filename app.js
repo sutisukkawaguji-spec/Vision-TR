@@ -8696,7 +8696,7 @@ async function v2PromptImport(sourceName) {
                 <label class="block text-xs font-bold text-gray-600">ชื่อแผนที่หลัก</label>
                 <input id="v2-map-name" class="swal2-input !m-0 !w-full" value="${suggestedMap.replace(/"/g, '&quot;')}">
                 <label class="block text-xs font-bold text-gray-600">ชื่องาน / กลุ่มการบันทึก</label>
-                <input id="v2-work-name" class="swal2-input !m-0 !w-full" value="${(currentUser.category || 'ทั่วไป').replace(/"/g, '&quot;')}">
+                <input id="v2-work-name" class="swal2-input !m-0 !w-full" value="" placeholder="ระบุชื่อกลุ่มงานสำหรับ Base Map นี้">
                 ${isTeamOwner() ? '<label class="flex items-center gap-2 text-xs font-bold text-emerald-700"><input id="v2-work-shared" type="checkbox" class="h-4 w-4"> แชร์กลุ่มงานนี้ให้ทีม</label>' : ''}
                 <p class="text-[11px] text-gray-500">ระบบจะอ่านและค้นหาทุกคอลัมน์โดยอัตโนมัติ</p>
             </div>`,
