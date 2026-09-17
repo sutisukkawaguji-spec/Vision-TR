@@ -1855,6 +1855,20 @@ function isLatLngInJob(latlng, job) {
     return false;
 }
 
+function isMapDrawingInteractionActive() {
+    return Boolean(
+        isThreePointRectangleMode ||
+        isRulerActive ||
+        (map?.pm && (
+            map.pm.globalEditModeEnabled() ||
+            map.pm.globalDragModeEnabled() ||
+            map.pm.globalRotateModeEnabled() ||
+            map.pm.globalDrawModeEnabled() ||
+            map.pm.globalRemovalModeEnabled()
+        ))
+    );
+}
+
 function getJobFootprintSize(job) {
     if (job?.properties?.is_circle && Number(job.properties.radius) > 0) {
         return Math.PI * Number(job.properties.radius) ** 2;
@@ -2128,8 +2142,7 @@ function stageSurveyFeatureForSave(layer, parentJob, feature) {
     const isIndependentParent = parentJob.properties?.is_custom_draw === true;
     layer.bindTooltip?.(isIndependentParent ? 'แตะรายการย่อยอีกครั้งเพื่อบันทึก' : 'แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
     layer.on('click', async event => {
-        const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
-        if (editing || layer.isOpeningSurveySave) return;
+        if (isMapDrawingInteractionActive() || layer.isOpeningSurveySave) return;
         if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
         markerJustClicked = true;
         layer.isOpeningSurveySave = true;
@@ -2383,8 +2396,7 @@ function stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius
     markLayerAsSurveyDrawing(layer, job.id);
     layer.bindTooltip?.('แตะอีกครั้งเพื่อบันทึก', { direction: 'top', className: 'job-label-pending' });
     const openSaveForm = event => {
-        const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
-        if (editing) return;
+        if (isMapDrawingInteractionActive()) return;
         if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
         markerJustClicked = true;
         // Let the map's click handler finish first. It can close the sheet
@@ -2563,8 +2575,7 @@ function createSurveyFeatureLayer(job, feature) {
             updateSurveyFeatureFromLayer(job.id, feature.id, target);
         });
         target.on('click', event => {
-            const editing = map?.pm && (map.pm.globalEditModeEnabled() || map.pm.globalDragModeEnabled() || map.pm.globalRotateModeEnabled() || map.pm.globalRemovalModeEnabled());
-            if (editing) return;
+            if (isMapDrawingInteractionActive()) return;
 
             // Survey drawings sit above their Base Map plot. Mark this as a layer
             // click so the map click handler consumes it instead of closing the
@@ -4710,14 +4721,9 @@ function renderMap(fitBounds = false) {
             }
 
             layer.on('click', () => {
-                const isPmActive = map && map.pm && (
-                    map.pm.globalEditModeEnabled() || 
-                    map.pm.globalDragModeEnabled() || 
-                    map.pm.globalRotateModeEnabled() || 
-                    map.pm.globalDrawModeEnabled() ||
-                    map.pm.globalRemovalModeEnabled()
-                );
-                if (isPmActive) return;
+                // Let special drawing tools receive the map click even when
+                // their first point is on top of a Base Map polygon.
+                if (isMapDrawingInteractionActive()) return;
 
                 markerJustClicked = true;
                 openSheet(job);
