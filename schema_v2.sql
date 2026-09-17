@@ -14,6 +14,7 @@ create table if not exists public.profiles (
 create table if not exists public.base_maps (
   id uuid primary key default gen_random_uuid(),
   team_id uuid not null,
+  work_group_id uuid,
   name text not null,
   source_name text,
   source_url text,
@@ -45,9 +46,16 @@ create table if not exists public.work_groups (
   description text,
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
+  is_shared boolean not null default false,
   is_active boolean not null default true,
   unique(team_id, name)
 );
+
+alter table public.base_maps
+  drop constraint if exists base_maps_work_group_id_fkey;
+alter table public.base_maps
+  add constraint base_maps_work_group_id_fkey
+  foreign key (work_group_id) references public.work_groups(id) on delete set null;
 
 create table if not exists public.survey_forms (
   id uuid primary key default gen_random_uuid(),
@@ -89,6 +97,7 @@ create table if not exists public.plot_records (
 );
 
 create index if not exists base_maps_team_idx on public.base_maps(team_id);
+create index if not exists base_maps_team_group_idx on public.base_maps(team_id, work_group_id);
 create index if not exists base_plots_team_map_idx on public.base_plots(team_id, base_map_id);
 create index if not exists base_plots_search_idx on public.base_plots using gin(to_tsvector('simple', search_text));
 create index if not exists work_groups_team_idx on public.work_groups(team_id);

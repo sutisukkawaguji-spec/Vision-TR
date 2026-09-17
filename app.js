@@ -1548,22 +1548,24 @@ function updateUserInfo() {
         selProfileCat.innerHTML = '';
 
         let activeCats = (typeof v2WorkGroups !== 'undefined' && v2WorkGroups.length)
-            ? v2WorkGroups.filter(group => group.is_active !== false).map(group => group.name)
+            ? v2VisibleWorkGroups().filter(group => group.is_active !== false).map(group => group.name)
             : Array.from(new Set(dbJobs.map(j => j.category).filter(Boolean)));
         if (!activeCats.includes('ทั่วไป')) {
             activeCats.push('ทั่วไป');
         }
-        const currentCat = currentUser.category || 'ทั่วไป';
-        if (!activeCats.includes(currentCat)) {
-            activeCats.push(currentCat);
-        }
+        const currentCat = activeCats.includes(currentUser.category) ? currentUser.category : activeCats[0];
+        currentUser.category = currentCat;
 
         activeCats.sort();
 
         activeCats.forEach(cat => {
-            selProfileCat.innerHTML += `<option value="${cat}">${cat}</option>`;
+            const group = v2WorkGroups.find(item => item.name === cat);
+            const groupPrefix = group?.is_shared ? '👥 ' : '🔒 ';
+            selProfileCat.innerHTML += `<option value="${cat}">${groupPrefix}${cat}</option>`;
         });
         selProfileCat.value = currentCat;
+
+        renderWorkGroupShareControl();
     }
 
     const catInput = document.getElementById('inp-profile-category');
@@ -1575,7 +1577,7 @@ function updateUserInfo() {
     updateGpsStatus();
 }
 
-function saveProfileCategory() {
+async function saveProfileCategory() {
     const selProfileCat = document.getElementById('sel-profile-category');
     if (!selProfileCat) return;
 
@@ -1592,7 +1594,7 @@ function saveProfileCategory() {
     updateCounter();
 
     // Sync from database and re-draw markers with the new category
-    syncJobsFromDB();
+    await syncJobsFromDB();
 
     Swal.fire({
         toast: true,
@@ -1848,6 +1850,47 @@ async function addSurveyFeatureToJob(job, feature) {
     // without appearing in the parent's list.
     return openSurveyFeatureEditor(job.id, null, feature);
 }
+
+function isTeamOwner() {
+    return Boolean(currentUser?.id && currentUser.team_id === currentUser.id);
+}
+
+function v2VisibleWorkGroups() {
+    return v2WorkGroups.filter(group =>
+        group.is_active !== false && (isTeamOwner() || group.is_shared === true || group.created_by === currentUser?.id)
+    );
+}
+
+function renderWorkGroupShareControl() {
+    const row = document.getElementById('work-group-share-row');
+    const checkbox = document.getElementById('chk-work-group-shared');
+    if (!row || !checkbox) return;
+    const group = v2WorkGroups.find(item => item.name === currentUser?.category);
+    const canShare = isTeamOwner() && Boolean(group);
+    row.classList.toggle('hidden', !canShare);
+    checkbox.checked = group?.is_shared === true;
+}
+
+async function toggleActiveWorkGroupSharing(shared) {
+    const group = v2ActiveWorkGroup || v2WorkGroups.find(item => item.name === currentUser?.category);
+    if (!isTeamOwner() || !group) return;
+    showLoading(true, shared ? 'กำลังแชร์กลุ่มงานให้ทีม...' : 'กำลังตั้งกลุ่มงานเป็นส่วนตัว...');
+    try {
+        const { data, error } = await supabaseClient.from('work_groups')
+            .update({ is_shared: Boolean(shared) })
+            .eq('id', group.id).select().single();
+        if (error) throw error;
+        v2WorkGroups = v2WorkGroups.map(item => item.id === data.id ? data : item);
+        v2ActiveWorkGroup = data;
+        updateUserInfo();
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: shared ? 'แชร์กลุ่มงานให้ทีมแล้ว' : 'กลุ่มงานเป็นส่วนตัวแล้ว', timer: 1500, showConfirmButton: false });
+    } catch (error) {
+        const checkbox = document.getElementById('chk-work-group-shared');
+        if (checkbox) checkbox.checked = !shared;
+        Swal.fire('เปลี่ยนการแชร์ไม่สำเร็จ', error.message, 'error');
+    } finally { showLoading(false); }
+}
+window.toggleActiveWorkGroupSharing = toggleActiveWorkGroupSharing;
 
 function stageSurveyFeatureForSave(layer, parentJob, feature) {
     if (!layer || !parentJob) return;
@@ -8031,14 +8074,15 @@ async function v2FetchOptionalTable(table, orderColumn = 'created_at') {
     }
 }
 
-async function v2EnsureWorkGroup(name) {
+async function v2EnsureWorkGroup(name, { isShared = undefined } = {}) {
     const cleanName = (name || currentUser.category || 'ทั่วไป').trim() || 'ทั่วไป';
-    let group = v2WorkGroups.find(item => item.name === cleanName);
+    let group = v2VisibleWorkGroups().find(item => item.name === cleanName);
     if (!group) {
         const { data, error } = await supabaseClient.from('work_groups').upsert({
             team_id: currentUser.team_id,
             name: cleanName,
             created_by: currentUser.id,
+            is_shared: isTeamOwner() && isShared === true,
             is_active: true
         }, { onConflict: 'team_id,name' }).select().single();
         if (error) throw error;
@@ -8054,7 +8098,12 @@ async function v2EnsureWorkGroup(name) {
 function v2ComposeJobs() {
     const mapById = new Map(v2BaseMaps.map(item => [item.id, item]));
     const recordByPlot = new Map(v2PlotRecords.map(item => [item.base_plot_id, item]));
+    const activeGroupId = v2ActiveWorkGroup?.id;
+    const activeMapIds = new Set(v2BaseMaps
+        .filter(baseMap => baseMap.work_group_id === activeGroupId || (!baseMap.work_group_id && v2ActiveWorkGroup?.name === 'ทั่วไป'))
+        .map(baseMap => baseMap.id));
     return v2BasePlots.filter(plot => {
+        if (!activeMapIds.has(plot.base_map_id)) return false;
         const sourceProps = plot.source_properties || {};
         if (sourceProps.is_custom_draw !== true) return true;
 
@@ -8107,6 +8156,10 @@ syncJobsFromDB = async function (fitBounds = false) {
             v2FetchAll('work_groups', 'created_at'),
             v2FetchOptionalTable('survey_forms', 'updated_at')
         ]);
+        const visibleGroups = v2VisibleWorkGroups();
+        if (visibleGroups.length && !visibleGroups.some(group => group.name === currentUser.category)) {
+            currentUser.category = visibleGroups[0].name;
+        }
         await v2EnsureWorkGroup(currentUser.category || 'ทั่วไป');
         const { data: records, error } = await supabaseClient.from('plot_records').select('*').eq('work_group_id', v2ActiveWorkGroup.id);
         if (error) throw error;
@@ -8162,6 +8215,7 @@ saveJobToSupabase = async function (job) {
         if (!customMap) {
             const { data, error } = await supabaseClient.from('base_maps').insert({
                 team_id: currentUser.team_id,
+                work_group_id: group.id,
                 name: 'แปลงที่วาดเพิ่มเติม',
                 source_name: '__custom_draw__',
                 imported_by: currentUser.id
@@ -8290,6 +8344,7 @@ async function v2PromptImport(sourceName) {
                 <input id="v2-map-name" class="swal2-input !m-0 !w-full" value="${suggestedMap.replace(/"/g, '&quot;')}">
                 <label class="block text-xs font-bold text-gray-600">ชื่องาน / กลุ่มการบันทึก</label>
                 <input id="v2-work-name" class="swal2-input !m-0 !w-full" value="${(currentUser.category || 'ทั่วไป').replace(/"/g, '&quot;')}">
+                ${isTeamOwner() ? '<label class="flex items-center gap-2 text-xs font-bold text-emerald-700"><input id="v2-work-shared" type="checkbox" class="h-4 w-4"> แชร์กลุ่มงานนี้ให้ทีม</label>' : ''}
                 <p class="text-[11px] text-gray-500">ระบบจะอ่านและค้นหาทุกคอลัมน์โดยอัตโนมัติ</p>
             </div>`,
         showCancelButton: true,
@@ -8299,7 +8354,7 @@ async function v2PromptImport(sourceName) {
             const mapName = document.getElementById('v2-map-name').value.trim();
             const workName = document.getElementById('v2-work-name').value.trim();
             if (!mapName || !workName) return Swal.showValidationMessage('กรุณาระบุชื่อแผนที่และชื่องาน');
-            return { mapName, workName };
+            return { mapName, workName, isShared: Boolean(document.getElementById('v2-work-shared')?.checked) };
         }
     });
 
@@ -8371,9 +8426,10 @@ async function v2ImportFeatures(features, sourceName, sourceUrl = '') {
     if (!context) return;
     showLoading(true, `กำลังนำเข้า Base Map ${features.length} แปลง...`);
     try {
-        const group = await v2EnsureWorkGroup(context.workName);
+        const group = await v2EnsureWorkGroup(context.workName, { isShared: context.isShared });
         const { data: baseMap, error: mapError } = await supabaseClient.from('base_maps').insert({
             team_id: currentUser.team_id,
+            work_group_id: group.id,
             name: context.mapName,
             source_name: sourceName,
             source_url: sourceUrl || null,
