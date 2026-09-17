@@ -1063,7 +1063,10 @@ function initApp() {
             // tap create another feature instead of selecting this one.
             // The toolbar stays visible; choose the tool again to draw the
             // next feature.
-            map.pm?.Draw?.disable?.();
+            // Leaflet-Geoman finishes attaching the new layer immediately
+            // after this event. Defer disabling one tick so it cannot remove
+            // the newly created marker/polygon before it is attached.
+            window.setTimeout(() => map?.pm?.Draw?.disable?.(), 0);
 
             if (!isSurveyShapeAllowed(shape)) {
                 clearDrawingMeasurements(true);
