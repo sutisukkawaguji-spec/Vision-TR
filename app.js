@@ -1,9 +1,11 @@
-// Global error handlers for debugging
+// Keep runtime diagnostics in the browser console.  Never interrupt field
+// work with Chrome's opaque cross-origin "Script error. at :0" alert.
 window.addEventListener('error', function (e) {
-    alert('JS Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+    const source = e.filename ? `${e.filename}:${e.lineno || 0}` : 'external script';
+    console.error('[Vision TR runtime error]', e.message || 'Unknown error', source, e.error || '');
 });
 window.addEventListener('unhandledrejection', function (e) {
-    alert('Unhandled Promise Rejection: ' + e.reason);
+    console.error('[Vision TR unhandled promise]', e.reason);
 });
 
 // --- Google Apps Script (GAS) Proxy Configuration ---
@@ -658,6 +660,8 @@ let justDeletedJobId = null;
 let isThreePointRectangleMode = false;
 let threePointRectanglePoints = [];
 let threePointRectanglePreviewGroup = null;
+let threePointPreviewTimer = null;
+let threePointPreviewPointer = null;
 let pendingDrawingToolResume = null;
 window.imagesToDeleteFromCloud = [];
 window.originalImagesBackup = [];
@@ -3576,7 +3580,8 @@ function showEditedShapeMeasurements(layer, jobId) {
     const job = findJobById(jobId);
     if (!job?.properties?.is_custom_draw || typeof layer?.getLatLngs !== 'function') return;
     const drawingShape = job.properties.drawing_shape === 'Rectangle' ? 'Rectangle' : 'Polygon';
-    pinCompletedDrawingMeasurements(layer, drawingShape);
+    drawingMeasurePinned = true;
+    scheduleDrawingMeasurementRender(layer, drawingShape, true);
 }
 
 function showEditablePolygonMeasurements(layer) {
@@ -3707,6 +3712,8 @@ let rulerIsClosed = false;
 let drawingMeasureGroup = null;
 let drawingMeasureLayer = null;
 let drawingMeasurePinned = false;
+let drawingMeasureTimer = null;
+let queuedDrawingMeasureArgs = null;
 
 function initDrawingMeasureGroup() {
     if (!drawingMeasureGroup && map) drawingMeasureGroup = L.layerGroup().addTo(map);
@@ -3714,6 +3721,9 @@ function initDrawingMeasureGroup() {
 
 function clearDrawingMeasurements(force = true) {
     if (drawingMeasurePinned && !force) return;
+    if (drawingMeasureTimer) window.clearTimeout(drawingMeasureTimer);
+    drawingMeasureTimer = null;
+    queuedDrawingMeasureArgs = null;
     drawingMeasureGroup?.clearLayers();
     drawingMeasureLayer = null;
     drawingMeasurePinned = false;
@@ -3764,21 +3774,38 @@ function renderDrawingMeasurements(layer, shape, isClosed = false) {
     }).addTo(drawingMeasureGroup).openTooltip();
 }
 
+function scheduleDrawingMeasurementRender(layer, shape, isClosed = false, immediate = false) {
+    queuedDrawingMeasureArgs = { layer, shape, isClosed };
+    if (drawingMeasureTimer) {
+        if (!immediate) return;
+        window.clearTimeout(drawingMeasureTimer);
+        drawingMeasureTimer = null;
+    }
+    const render = () => {
+        drawingMeasureTimer = null;
+        const next = queuedDrawingMeasureArgs;
+        queuedDrawingMeasureArgs = null;
+        if (next) renderDrawingMeasurements(next.layer, next.shape, next.isClosed);
+    };
+    if (immediate) render();
+    else drawingMeasureTimer = window.setTimeout(render, 70);
+}
+
 function watchDrawingMeasurements(event) {
     const shape = event?.shape;
     const layer = event?.workingLayer;
     if (!layer || !['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
     drawingMeasureLayer = layer;
     drawingMeasurePinned = false;
-    const refresh = () => renderDrawingMeasurements(layer, shape, false);
+    const refresh = () => scheduleDrawingMeasurementRender(layer, shape, false);
     layer.on('pm:change pm:vertexadded pm:vertexremoved', refresh);
-    refresh();
+    scheduleDrawingMeasurementRender(layer, shape, false, true);
 }
 
 function pinCompletedDrawingMeasurements(layer, shape) {
     if (!['Polygon', 'Rectangle'].includes(shape)) return clearDrawingMeasurements();
     drawingMeasurePinned = true;
-    renderDrawingMeasurements(layer, shape, true);
+    scheduleDrawingMeasurementRender(layer, shape, true, true);
 }
 
 function initThreePointRectanglePreview() {
@@ -3826,6 +3853,9 @@ function stopThreePointRectangleMode() {
     if (!map) return;
     isThreePointRectangleMode = false;
     threePointRectanglePoints = [];
+    if (threePointPreviewTimer) window.clearTimeout(threePointPreviewTimer);
+    threePointPreviewTimer = null;
+    threePointPreviewPointer = null;
     threePointRectanglePreviewGroup?.clearLayers();
     map.off('click', onThreePointRectangleClick);
     map.off('mousemove', onThreePointRectangleMove);
@@ -3892,7 +3922,14 @@ function startThreePointRectangleMode() {
 
 function onThreePointRectangleMove(event) {
     if (!isThreePointRectangleMode || threePointRectanglePoints.length < 2) return;
-    renderThreePointRectanglePreview(event.latlng);
+    // Rebuilding map labels is expensive on older PCs; keep the preview smooth
+    // without rebuilding it on every single mousemove event.
+    threePointPreviewPointer = event.latlng;
+    if (threePointPreviewTimer) return;
+    threePointPreviewTimer = window.setTimeout(() => {
+        threePointPreviewTimer = null;
+        if (isThreePointRectangleMode && threePointPreviewPointer) renderThreePointRectanglePreview(threePointPreviewPointer);
+    }, 45);
 }
 
 function onThreePointRectangleClick(event) {
