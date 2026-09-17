@@ -7256,9 +7256,9 @@ async function onExportWorkGroupChange() {
 function onExportDateModeChange() {
     const dateMode = document.querySelector('input[name="export-date-mode"]:checked')?.value;
     const calendar = document.getElementById('cal-days-grid')?.parentElement?.parentElement;
-    // Keep the calendar clear and readable.  It is simply non-interactive
-    // until the user chooses the date-range export mode.
-    if (calendar) calendar.classList.toggle('pointer-events-none', dateMode !== 'date');
+    // The calendar stays interactive in both modes; tapping a day switches
+    // to date export automatically, so the control never feels disabled.
+    if (calendar) calendar.classList.remove('pointer-events-none');
     const action = document.getElementById('cal-action-container');
     if (dateMode !== 'date') action?.classList.add('hidden');
 }
@@ -7325,7 +7325,11 @@ function renderExportCalendar() {
 }
 
 function selectExportDate(dateStr) {
-    if (document.querySelector('input[name="export-date-mode"]:checked')?.value !== 'date') return;
+    const dateMode = document.querySelector('input[name="export-date-mode"][value="date"]');
+    if (dateMode && !dateMode.checked) {
+        dateMode.checked = true;
+        onExportDateModeChange();
+    }
     calSelectedDate = dateStr;
 
     // Format for display
