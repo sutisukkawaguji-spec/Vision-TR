@@ -2456,6 +2456,7 @@ function renderSurveyFeatureList(job) {
     const list = document.getElementById('survey-feature-list');
     const count = document.getElementById('survey-feature-count');
     const heading = document.getElementById('survey-feature-heading');
+    const actions = document.getElementById('survey-feature-actions');
     if (!section || !list || !count) return;
     const features = Array.isArray(job?.properties?.survey_features) ? job.properties.survey_features : [];
     const isIndependentParent = job?.properties?.is_custom_draw === true;
@@ -2464,6 +2465,7 @@ function renderSurveyFeatureList(job) {
     section.classList.toggle('hidden', features.length === 0);
     if (features.length === 0) {
         list.innerHTML = '';
+        if (actions) actions.innerHTML = '';
         return;
     }
     const labels = { Marker: 'จุด', Circle: 'วงกลม', Polygon: 'พื้นที่', Rectangle: 'สี่เหลี่ยม' };
@@ -2471,6 +2473,7 @@ function renderSurveyFeatureList(job) {
         const label = labels[feature.shape] || feature.shape || 'รูปวาด';
         const status = feature.status === 'done' ? 'สำรวจแล้ว' : 'รอตรวจ';
         return `<div class="flex items-center gap-2 rounded-xl bg-white border ${selectedSurveyFeatureId === feature.id ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-100'} px-3 py-2">
+            <input type="checkbox" class="survey-feature-select h-4 w-4 shrink-0 accent-rose-600" data-job-id="${v2EscapeHtml(job.id)}" data-feature-id="${v2EscapeHtml(feature.id)}" onchange="updateSurveyFeatureSelectionUi('${job.id}')" aria-label="เลือกรายการ ${index + 1}">
             <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-bold">${index + 1}</span>
             <button type="button" onclick="focusSurveyFeature('${job.id}', '${feature.id}')" class="min-w-0 flex-1 text-left">
                 <span class="block text-xs font-bold text-slate-700">${v2EscapeHtml(feature.name || label)}</span>
@@ -2480,6 +2483,73 @@ function renderSurveyFeatureList(job) {
             <button type="button" onclick="deleteSurveyFeatureFromSheet(event, '${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-rose-500 hover:bg-rose-50" title="ลบรูปวาดนี้" aria-label="ลบรูปวาดนี้"><i class="fa-solid fa-trash"></i></button>
         </div>`;
     }).join('');
+    if (actions) {
+        actions.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2 border-t border-rose-100 px-3 py-2 bg-rose-50/60">
+            <label class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"><input id="survey-feature-select-all" type="checkbox" class="h-4 w-4 accent-rose-600" onchange="toggleAllSurveyFeatures('${job.id}', this.checked)"> เลือกทั้งหมด</label>
+            <div class="flex gap-1.5"><button id="btn-delete-selected-survey-features" type="button" onclick="deleteSelectedSurveyFeatures('${job.id}')" disabled class="rounded-lg bg-rose-100 px-2.5 py-1.5 text-[11px] font-bold text-rose-700 disabled:cursor-not-allowed disabled:opacity-45"><i class="fa-solid fa-trash-can mr-1"></i>ลบที่เลือก</button><button type="button" onclick="deleteSelectedSurveyFeatures('${job.id}', true)" class="rounded-lg bg-rose-600 px-2.5 py-1.5 text-[11px] font-bold text-white"><i class="fa-solid fa-trash-can mr-1"></i>ลบทั้งหมด</button></div>
+        </div>`;
+    }
+}
+
+function getSelectedSurveyFeatureIds(jobId) {
+    return Array.from(document.querySelectorAll('.survey-feature-select:checked'))
+        .filter(input => input.dataset.jobId === jobId)
+        .map(input => input.dataset.featureId)
+        .filter(Boolean);
+}
+
+function updateSurveyFeatureSelectionUi(jobId) {
+    const inputs = Array.from(document.querySelectorAll('.survey-feature-select')).filter(input => input.dataset.jobId === jobId);
+    const selected = inputs.filter(input => input.checked).length;
+    const selectAll = document.getElementById('survey-feature-select-all');
+    if (selectAll) {
+        selectAll.checked = inputs.length > 0 && selected === inputs.length;
+        selectAll.indeterminate = selected > 0 && selected < inputs.length;
+    }
+    const deleteButton = document.getElementById('btn-delete-selected-survey-features');
+    if (deleteButton) deleteButton.disabled = selected === 0;
+}
+
+function toggleAllSurveyFeatures(jobId, checked) {
+    document.querySelectorAll('.survey-feature-select').forEach(input => {
+        if (input.dataset.jobId === jobId) input.checked = checked;
+    });
+    updateSurveyFeatureSelectionUi(jobId);
+}
+
+async function deleteSelectedSurveyFeatures(jobId, deleteAll = false) {
+    const job = findJobById(jobId);
+    const features = Array.isArray(job?.properties?.survey_features) ? job.properties.survey_features : [];
+    const selectedIds = deleteAll ? features.map(feature => feature.id) : getSelectedSurveyFeatureIds(jobId);
+    if (!selectedIds.length) return Swal.fire('ยังไม่ได้เลือกรายการ', 'ติ๊กเลือกรูปวาดที่ต้องการลบก่อน', 'info');
+
+    const count = selectedIds.length;
+    const confirmed = await Swal.fire({
+        title: deleteAll ? 'ลบรูปวาดทั้งหมด?' : `ลบรูปวาดที่เลือก ${count} รายการ?`,
+        text: 'รูปวาด ข้อมูลบันทึก และรูปถ่ายของรายการที่เลือกจะถูกลบออกจากแปลงนี้ โดยไม่กระทบขอบเขตแปลงหลัก',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: deleteAll ? 'ลบทั้งหมด' : 'ลบรายการที่เลือก',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#dc2626'
+    });
+    if (!confirmed.isConfirmed) return;
+
+    try {
+        const selectedSet = new Set(selectedIds);
+        job.properties.survey_features = features.filter(feature => !selectedSet.has(feature.id));
+        if (selectedSet.has(selectedSurveyFeatureId)) selectedSurveyFeatureId = null;
+        await saveJobToSupabase(job);
+        const refreshed = findJobById(jobId);
+        if (refreshed) {
+            renderSurveyFeatureList(refreshed);
+            openSheetSilently(refreshed);
+        }
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: `ลบรูปวาดแล้ว ${count} รายการ`, timer: 1800, showConfirmButton: false });
+    } catch (error) {
+        console.error('Batch survey feature delete error', error);
+        Swal.fire('ลบรูปวาดไม่สำเร็จ', error.message, 'error');
+    }
 }
 
 function focusSurveyFeature(jobId, featureId, notify = true) {
