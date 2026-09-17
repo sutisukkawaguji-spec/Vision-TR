@@ -767,11 +767,9 @@
             visibility: hidden !important;
         }
 
-        /* Geoman's short instructional badge is redundant with the active
-           tool highlight and gets in the way of drawing on small screens. */
-        #map .leaflet-pm-tooltip,
-        #map .leaflet-pm-draw-tooltip,
-        #map .leaflet-pm-tooltip-container {
+        /* The selected-tool highlight and a second tap to cancel are enough
+           on mobile. Hide Geoman's small Cancel / Finish action strip. */
+        #map .leaflet-pm-toolbar .leaflet-pm-actions-container {
             display: none !important;
         }
 
@@ -2404,7 +2402,7 @@
         }
     </script>
     <script src="config.js?v=3.2.1" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.70" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.71" charset="UTF-8"></script>
 </body>
 
 </html>
