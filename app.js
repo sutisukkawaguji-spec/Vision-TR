@@ -8280,6 +8280,7 @@ let v2BasePlots = [];
 let v2WorkGroups = [];
 let v2PlotRecords = [];
 let v2SurveyForms = [];
+let v2TeamProfiles = [];
 let v2ActiveWorkGroup = null;
 let surveyFormDraftFields = [];
 let surveyFormDraftBaseline = '[]';
@@ -8434,12 +8435,25 @@ syncJobsFromDB = async function (fitBounds = false) {
     if (!supabaseClient || !currentUser) return;
     showLoading(true, 'กำลังโหลด Base Map และข้อมูลบันทึก...');
     try {
-        [v2BaseMaps, v2BasePlots, v2WorkGroups, v2SurveyForms] = await Promise.all([
+        const [baseMaps, basePlots, workGroups, surveyForms, teamProfiles] = await Promise.all([
             v2FetchAll('base_maps', 'imported_at'),
             v2FetchAll('base_plots', 'created_at'),
             v2FetchAll('work_groups', 'created_at'),
-            v2FetchOptionalTable('survey_forms', 'updated_at')
+            v2FetchOptionalTable('survey_forms', 'updated_at'),
+            supabaseClient.from('profiles').select('id, display_name, email').eq('team_id', currentUser.team_id)
         ]);
+        if (teamProfiles.error) throw teamProfiles.error;
+        v2TeamProfiles = teamProfiles.data || [];
+        const activeMemberIds = new Set(v2TeamProfiles.map(profile => profile.id));
+        const importerById = new Map(v2TeamProfiles.map(profile => [profile.id, profile]));
+        // A former member's Base Map remains stored, but no longer appears in this team workspace.
+        v2BaseMaps = baseMaps.filter(mapItem => !mapItem.imported_by || activeMemberIds.has(mapItem.imported_by)).map(mapItem => ({
+            ...mapItem,
+            imported_by_name: importerById.get(mapItem.imported_by)?.display_name || importerById.get(mapItem.imported_by)?.email || 'ไม่ระบุผู้นำเข้า'
+        }));
+        v2BasePlots = basePlots;
+        v2WorkGroups = workGroups;
+        v2SurveyForms = surveyForms;
         const visibleGroups = v2VisibleWorkGroups();
         if (visibleGroups.length && !visibleGroups.some(group => group.name === currentUser.category)) {
             currentUser.category = visibleGroups[0].name;
@@ -8839,6 +8853,7 @@ renderImportedMapsList = function () {
             <div class="min-w-0 flex-1">
                 <p class="text-xs font-bold text-gray-700 truncate">${mapItem.name}</p>
                 <p class="text-[10px] text-gray-500 mt-1">${mapItem.feature_count || 0} แปลง · นำเข้า ${v2EscapeHtml(formatBaseMapImportedAt(mapItem.imported_at))}</p>
+                <p class="text-[10px] text-blue-600 mt-0.5"><i class="fa-solid fa-user mr-1"></i>ผู้นำเข้า: ${v2EscapeHtml(mapItem.imported_by_name || 'ไม่ระบุผู้นำเข้า')}</p>
             </div>
             <button onclick="deleteImportedMap('${mapItem.id}')" class="text-xs text-red-500 p-1.5" title="ลบ Base Map">
                 <i class="fa-solid fa-trash-can"></i>
