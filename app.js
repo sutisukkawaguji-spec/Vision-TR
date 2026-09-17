@@ -1036,7 +1036,7 @@ function initApp() {
         map.on('pm:remove', async (e) => {
             const removedLayer = e.layer;
             if (removedLayer.surveyFeatureId && removedLayer.parentJobId) {
-                await removeSurveyFeatureFromJob(removedLayer.parentJobId, removedLayer.surveyFeatureId);
+                await removeSurveyFeatureFromJob(removedLayer.parentJobId, removedLayer.surveyFeatureId, { silent: true });
                 return;
             }
             const jobId = removedLayer.jobId;
@@ -1044,7 +1044,9 @@ function initApp() {
                 const job = findJobById(jobId);
                 if (job) {
                     selectedJobId = jobId;
-                    await deleteJob();
+                    // Eraser is already an explicit delete action. Do not
+                    // interrupt the next erase tap with a confirmation.
+                    await deleteJob({ skipConfirm: true, silent: true });
                     // หากไม่ได้ทำการลบจริง (เช่น กดยกเลิก) ให้แสดงผลแผนที่ใหม่เพื่อคืนค่าเลเยอร์กลับมา
                     if (findJobById(jobId)) {
                         if (job.properties && job.properties.is_temp === true) {
@@ -2285,14 +2287,14 @@ async function updateSurveyFeatureFromLayer(jobId, featureId, layer) {
     }
 }
 
-async function removeSurveyFeatureFromJob(jobId, featureId) {
+async function removeSurveyFeatureFromJob(jobId, featureId, { silent = false } = {}) {
     const job = findJobById(jobId);
     if (!job) return;
     const features = Array.isArray(job.properties?.survey_features) ? job.properties.survey_features : [];
     job.properties.survey_features = features.filter(feature => feature.id !== featureId);
     try {
         await saveJobToSupabase(job);
-        Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ลบรูปวาดออกจากแปลงแล้ว', timer: 1500, showConfirmButton: false });
+        if (!silent) Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ลบรูปวาดออกจากแปลงแล้ว', timer: 1500, showConfirmButton: false });
     } catch (error) {
         console.error('Survey feature remove error', error);
         Swal.fire('ลบรูปวาดไม่สำเร็จ', error.message, 'error');
@@ -5982,13 +5984,13 @@ async function saveData() {
     }
 }
 
-async function deleteJob() {
+async function deleteJob({ skipConfirm = false, silent = false } = {}) {
     const job = findJobById(selectedJobId);
     if (!job) return;
 
     // Check if temporary drawn shape
     if (job.properties && job.properties.is_temp === true) {
-        const confirm = await Swal.fire({
+        const confirm = skipConfirm ? { isConfirmed: true } : await Swal.fire({
             title: 'ยืนยันการลบรูปแปลงที่วาดใหม่?',
             text: 'คุณต้องการลบหรือยกเลิกการวาดรูปแปลงนี้ใช่หรือไม่?',
             icon: 'warning',
@@ -6020,14 +6022,14 @@ async function deleteJob() {
         clearDrawingMeasurements();
         closeSheet();
         showPendingActionsBar();
-        Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ยกเลิกการวาดเรียบร้อย', timer: 1500, showConfirmButton: false });
+        if (!silent) Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ยกเลิกการวาดเรียบร้อย', timer: 1500, showConfirmButton: false });
         return;
     }
 
     // Check if custom drawn item
     if (job.properties && job.properties.is_custom_draw === true) {
         const hasImages = job.properties.images && job.properties.images.length > 0;
-        const confirm = await Swal.fire({
+        const confirm = skipConfirm ? { isConfirmed: true } : await Swal.fire({
             title: 'ยืนยันลบข้อมูลรูปแปลง/หมุด?',
             text: 'ระบบจะลบข้อมูลรูปแปลง/หมุด และรูปถ่ายทั้งหมดออกจากระบบอย่างถาวร',
             icon: 'warning',
@@ -6043,7 +6045,7 @@ async function deleteJob() {
             isMapClickBlocked = true;
             closeSheet();
 
-            showLoading(true, 'กำลังลบข้อมูลรูปแปลง/หมุด...');
+            if (!silent) showLoading(true, 'กำลังลบข้อมูลรูปแปลง/หมุด...');
             try {
                 // 1. Delete images from Cloudinary
                 if (hasImages) {
@@ -6070,10 +6072,10 @@ async function deleteJob() {
                 // 4. Render map
                 clearDrawingMeasurements();
                 renderMap();
-                showLoading(false);
-                await Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ลบข้อมูลรูปแปลง/หมุดเรียบร้อยแล้ว', timer: 1500, showConfirmButton: false });
+                if (!silent) showLoading(false);
+                if (!silent) await Swal.fire({ toast: true, position: 'top', backdrop: false, icon: 'success', title: 'ลบข้อมูลรูปแปลง/หมุดเรียบร้อยแล้ว', timer: 1500, showConfirmButton: false });
             } catch (e) {
-                showLoading(false);
+                if (!silent) showLoading(false);
                 Swal.fire('ล้มเหลวในการลบข้อมูล', e.message, 'error');
             } finally {
                 setTimeout(() => {
@@ -9069,7 +9071,7 @@ deleteImportedMap = async function (baseMapId) {
     let confirmedLinkedDelete = false;
     if (summary.records.length) {
         const groupRows = summary.groups.map(([name, count]) => `<li>${v2EscapeHtml(name)}: ${count.toLocaleString()} ผลบันทึก</li>`).join('');
-        const confirm = await Swal.fire({
+        const confirm = skipConfirm ? { isConfirmed: true } : await Swal.fire({
             title: 'ลบ Base Map พร้อมผลบันทึก?',
             icon: 'warning',
             html: `<div class="text-left text-sm text-slate-600"><p>คุณกำลังจะลบ Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” พร้อมข้อมูลที่เชื่อมอยู่</p><div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3"><b class="text-rose-700">ข้อมูลที่จะถูกลบถาวร</b><ul class="mt-1 list-disc space-y-1 pl-5 text-xs"><li>ขอบเขตแปลง: <b>${summary.plotCount.toLocaleString()} แปลง</b></li><li>ผลบันทึก/ผลสำรวจ: <b>${summary.records.length.toLocaleString()} รายการ</b></li><li>ข้อความ หมายเหตุ และรูปภาพ: <b>${summary.imageCount.toLocaleString()} รูป</b></li></ul></div><p class="mt-3 text-xs font-bold text-slate-700">แยกตามกลุ่มงาน</p><ul class="mt-1 list-disc pl-5 text-xs">${groupRows}</ul><p class="mt-3 text-xs text-rose-700">การดำเนินการนี้ไม่สามารถย้อนกลับได้ โปรดสำรองข้อมูลที่ต้องการก่อนลบ</p></div>`,
