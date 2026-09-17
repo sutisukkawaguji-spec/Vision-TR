@@ -6187,9 +6187,6 @@ async function closeSettingsModal(e) {
     if (!modal?.classList.contains('active')) return;
 
     if (activeSettingsTab === 'form' && isSurveyFormDraftDirty()) {
-        if (!surveyFormDraftFields.length) {
-            return Swal.fire('ยังปิดไม่ได้', 'กรุณาเพิ่มช่องกรอกอย่างน้อย 1 ช่องก่อนปิด หรือคืนช่องที่ลบออก', 'warning');
-        }
         const saved = await saveSurveyFormDefinition({ silent: true });
         if (!saved) return;
     }
@@ -6467,7 +6464,7 @@ function renderSurveyFormFieldsList() {
     if (!list) return;
     if (count) count.textContent = `${surveyFormDraftFields.length} ช่อง`;
     if (!surveyFormDraftFields.length) {
-        list.innerHTML = '<div class="text-center text-xs text-gray-400 border border-dashed border-gray-300 rounded-2xl py-6">เพิ่มช่องกรอก หรือนำเข้าจาก Excel</div>';
+        list.innerHTML = '<div class="text-center text-xs text-gray-400 border border-dashed border-gray-300 rounded-2xl py-6">ฟอร์มว่าง: ยังบันทึกสถานะ หมายเหตุ รูปถ่าย และพิกัดได้ตามปกติ<br><span class="text-[10px]">เพิ่มช่องกรอกหรือนำเข้าจาก Excel ได้ภายหลัง</span></div>';
         return;
     }
     list.innerHTML = surveyFormDraftFields.map((field, index) => `
@@ -6664,7 +6661,6 @@ async function saveSurveyFormDefinition(options = {}) {
     const layerType = normalizeSurveyLayerType(document.getElementById('survey-form-layer-type')?.value);
     const layerColor = normalizeSurveyLayerColor(document.getElementById('survey-form-layer-color')?.value);
     if (!name) { Swal.fire('กรุณาตั้งชื่อแบบฟอร์ม', '', 'warning'); return false; }
-    if (!surveyFormDraftFields.length) { Swal.fire('แบบฟอร์มยังว่าง', 'กรุณาเพิ่มช่องกรอกอย่างน้อย 1 ช่อง', 'warning'); return false; }
     const existing = getActiveSurveyForm();
     const previousFields = JSON.parse(JSON.stringify(existing?.fields || []));
     showLoading(true, 'กำลังบันทึกแบบฟอร์ม...');
