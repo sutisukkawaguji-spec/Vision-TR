@@ -1871,7 +1871,8 @@ function renderWorkGroupShareControl() {
     const canShare = isTeamOwner() && Boolean(group);
     row.classList.toggle('hidden', !canShare);
     checkbox.checked = group?.is_shared === true;
-    const canDelete = Boolean(group && group.name !== 'ทั่วไป' && (isTeamOwner() || group.created_by === currentUser?.id));
+    // Deleting survey data is destructive: only the person who created this group can do it.
+    const canDelete = Boolean(group && group.name !== 'ทั่วไป' && group.created_by === currentUser?.id);
     deleteButton?.classList.toggle('hidden', !canDelete);
 }
 
@@ -1926,32 +1927,107 @@ async function createWorkGroupFromMaps() {
 }
 window.createWorkGroupFromMaps = createWorkGroupFromMaps;
 
-async function archiveSelectedWorkGroup() {
+function getWorkGroupImagePublicIds(records) {
+    const images = [];
+    (records || []).forEach(record => {
+        if (Array.isArray(record.images)) images.push(...record.images);
+        const features = record.record_properties?.survey_features;
+        if (Array.isArray(features)) {
+            features.forEach(feature => {
+                if (Array.isArray(feature?.images)) images.push(...feature.images);
+            });
+        }
+    });
+    return [...new Set(images.map(image => {
+        if (typeof image === 'string') return getPublicIdFromUrl(image);
+        return image?.public_id || getPublicIdFromUrl(image?.url);
+    }).filter(Boolean))];
+}
+
+async function deleteSelectedWorkGroup() {
     const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
     const group = v2WorkGroups.find(item => item.name === selectedName);
     if (!group || group.name === 'ทั่วไป') return;
-    if (!(isTeamOwner() || group.created_by === currentUser?.id)) return Swal.fire('ไม่มีสิทธิ์ลบกลุ่มงานนี้', '', 'warning');
+    if (group.created_by !== currentUser?.id) {
+        return Swal.fire('ไม่มีสิทธิ์ลบกลุ่มงานนี้', 'เฉพาะผู้สร้างกลุ่มงานเท่านั้นที่ลบได้', 'warning');
+    }
+
     const result = await Swal.fire({
         title: `ลบกลุ่มงาน “${group.name}”?`,
-        html: '<p class="text-sm text-slate-600">จะนำกลุ่มงานออกจากรายการเท่านั้น<br><b>Base Map และแปลงจะไม่ถูกลบ</b></p>',
+        html: `<div class="space-y-3 text-left text-sm text-slate-600">
+            <p>การดำเนินการนี้<b class="text-rose-600">ไม่สามารถย้อนกลับได้</b></p>
+            <div class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                <b class="block text-rose-700">ข้อมูลที่จะถูกลบ</b>
+                <ul class="mt-1 list-disc space-y-1 pl-5 text-xs"><li>ผลการสำรวจและสถานะของทุกแปลงในกลุ่มนี้</li><li>ข้อความ หมายเหตุ และรายละเอียดการบันทึก</li><li>ภาพถ่ายที่แนบกับการสำรวจ</li><li>แบบฟอร์มบันทึกของกลุ่มงานนี้</li></ul>
+            </div>
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs"><b class="text-emerald-700">Base Map และขอบเขตแปลงจะไม่ถูกลบ</b><br>ระบบจะเก็บไว้ให้เลือกนำไปใช้กับกลุ่มงานใหม่ได้</div>
+            <p class="text-xs text-amber-700">หากยังต้องการข้อมูลสำรวจ โปรดส่งออกหรือบันทึกข้อมูลไว้ก่อนลบกลุ่มงาน</p>
+        </div>`,
         icon: 'warning', showCancelButton: true,
-        confirmButtonText: 'ลบกลุ่มงาน', cancelButtonText: 'ยกเลิก', confirmButtonColor: '#e11d48'
+        confirmButtonText: 'รับทราบและดำเนินการต่อ', cancelButtonText: 'ยกเลิก', confirmButtonColor: '#e11d48'
     });
     if (!result.isConfirmed) return;
-    showLoading(true, 'กำลังลบกลุ่มงาน...');
+
+    const passwordResult = await Swal.fire({
+        title: 'ยืนยันรหัสผ่านก่อนลบ',
+        text: 'กรอกรหัสผ่านบัญชีของคุณเพื่อยืนยันการลบกลุ่มงานและข้อมูลสำรวจ',
+        input: 'password',
+        inputPlaceholder: 'รหัสผ่านของคุณ',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+        showCancelButton: true,
+        confirmButtonText: 'ยืนยันและลบถาวร',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#e11d48',
+        preConfirm: password => {
+            if (!password) {
+                Swal.showValidationMessage('กรุณากรอกรหัสผ่านเพื่อดำเนินการต่อ');
+                return false;
+            }
+            return password;
+        }
+    });
+    if (!passwordResult.isConfirmed) return;
+
+    showLoading(true, 'กำลังตรวจสอบรหัสผ่าน...');
     try {
-        const { data, error } = await supabaseClient.from('work_groups').update({ is_active: false }).eq('id', group.id).select().single();
+        if (!currentUser?.email) throw new Error('ไม่พบอีเมลผู้ใช้งานปัจจุบัน');
+        const { error: authError } = await supabaseClient.auth.signInWithPassword({
+            email: currentUser.email,
+            password: passwordResult.value
+        });
+        if (authError) throw new Error('รหัสผ่านไม่ถูกต้อง');
+
+        showLoading(true, 'กำลังลบข้อมูลสำรวจและกลุ่มงาน...');
+        const { data: records, error: recordsError } = await supabaseClient
+            .from('plot_records')
+            .select('id, images, record_properties')
+            .eq('work_group_id', group.id);
+        if (recordsError) throw recordsError;
+
+        // Delete uploaded files first; deleting the group then cascades its records/forms.
+        const imagePublicIds = getWorkGroupImagePublicIds(records);
+        await Promise.all(imagePublicIds.map(async publicId => {
+            try {
+                await fetch(GAS_URL + '?publicId=' + encodeURIComponent(publicId), { mode: 'no-cors' });
+            } catch (error) {
+                console.error('ลบภาพจากคลาวด์ไม่สำเร็จ:', publicId, error);
+            }
+        }));
+
+        const { error } = await supabaseClient.from('work_groups').delete().eq('id', group.id);
         if (error) throw error;
-        v2WorkGroups = v2WorkGroups.map(item => item.id === data.id ? data : item);
+        v2WorkGroups = v2WorkGroups.filter(item => item.id !== group.id);
+        v2PlotRecords = v2PlotRecords.filter(record => record.work_group_id !== group.id);
+        v2SurveyForms = v2SurveyForms.filter(form => form.work_group_id !== group.id);
         const fallback = v2VisibleWorkGroups()[0]?.name || 'ทั่วไป';
         currentUser.category = fallback;
         await syncJobsFromDB(true);
-        Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ลบกลุ่มงานแล้ว (เก็บ Base Map ไว้)', timer: 1600, showConfirmButton: false });
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: 'ลบกลุ่มงานและข้อมูลสำรวจแล้ว', timer: 1800, showConfirmButton: false });
     } catch (error) {
         Swal.fire('ลบกลุ่มงานไม่สำเร็จ', error.message, 'error');
     } finally { showLoading(false); }
 }
-window.archiveSelectedWorkGroup = archiveSelectedWorkGroup;
+window.deleteSelectedWorkGroup = deleteSelectedWorkGroup;
 
 async function toggleActiveWorkGroupSharing(shared) {
     const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
