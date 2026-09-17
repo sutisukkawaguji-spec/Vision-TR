@@ -1902,14 +1902,16 @@
                     <div class="p-4 border border-gray-200 rounded-2xl space-y-3 bg-gray-50/50">
                         <label class="text-xs font-bold text-gray-700 block">ชื่องาน / กลุ่มการบันทึก</label>
                         <div class="space-y-2">
-                            <select id="sel-profile-category"
-                                class="w-full p-2 border border-gray-300 rounded-xl bg-white text-sm outline-none focus:border-blue-500">
-                                <!-- Dynamic options -->
-                            </select>
-                            <label id="work-group-share-row" class="hidden items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 cursor-pointer">
-                                <input id="chk-work-group-shared" type="checkbox" onchange="toggleActiveWorkGroupSharing(this.checked)" class="h-4 w-4 rounded text-emerald-600">
-                                <span><i class="fa-solid fa-users mr-1"></i>แชร์กลุ่มงานนี้ให้ทีม</span>
-                            </label>
+                            <div class="flex items-center gap-2">
+                                <select id="sel-profile-category"
+                                    class="min-w-0 flex-1 p-2 border border-gray-300 rounded-xl bg-white text-sm outline-none focus:border-blue-500">
+                                    <!-- Dynamic options -->
+                                </select>
+                                <label id="work-group-share-row" class="hidden flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs font-bold text-emerald-800 cursor-pointer" title="แชร์กลุ่มงานนี้ให้ทีม">
+                                    <input id="chk-work-group-shared" type="checkbox" onchange="toggleActiveWorkGroupSharing(this.checked)" class="h-4 w-4 rounded text-emerald-600">
+                                    <span><i class="fa-solid fa-users mr-1"></i>แชร์</span>
+                                </label>
+                            </div>
                             <button onclick="saveProfileCategory()"
                                 class="w-full bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-blue-700 active:scale-95 transition">
                                 สลับกลุ่มการบันทึก

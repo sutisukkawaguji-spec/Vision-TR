@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vision-tr-v19';
+const CACHE_NAME = 'vision-tr-v20';
 const APP_SHELL = ['./', './index.html', './app.js?v=3.4.27', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
 
 self.addEventListener('install', (event) => {
