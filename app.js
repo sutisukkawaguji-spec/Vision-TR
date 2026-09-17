@@ -8524,9 +8524,13 @@ function v2ComposeJobs() {
         .filter(baseMap => baseMap.work_group_id === activeGroupId || (!baseMap.work_group_id && v2ActiveWorkGroup?.name === 'ทั่วไป'))
         .map(baseMap => baseMap.id));
     return v2BasePlots.filter(plot => {
-        if (!activeMapIds.has(plot.base_map_id)) return false;
         const sourceProps = plot.source_properties || {};
-        if (sourceProps.is_custom_draw !== true) return true;
+        const isCustomDraw = sourceProps.is_custom_draw === true;
+        // Older releases could put an independent drawing in the shared
+        // custom-map container of another work group. Its own group tag is
+        // authoritative, so recover and show those existing drawings here.
+        if (!activeMapIds.has(plot.base_map_id) && !(isCustomDraw && sourceProps.work_group_id === activeGroupId)) return false;
+        if (!isCustomDraw) return true;
 
         const record = recordByPlot.get(plot.id);
         const ownerWorkGroupId = sourceProps.work_group_id;
@@ -8648,7 +8652,10 @@ saveJobToSupabase = async function (job) {
     let plot = v2BasePlots.find(item => item.id === job.id);
 
     if (!plot) {
-        let customMap = v2BaseMaps.find(item => item.source_name === '__custom_draw__');
+        // Each work group has its own hidden container for independent pins
+        // and boundaries. Reusing a container from another group causes the
+        // saved drawing to be filtered out after the next map refresh.
+        let customMap = v2BaseMaps.find(item => item.source_name === '__custom_draw__' && item.work_group_id === group.id);
         if (!customMap) {
             const { data, error } = await supabaseClient.from('base_maps').insert({
                 team_id: currentUser.team_id,
