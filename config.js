@@ -10,8 +10,8 @@ const surveyPublicConfig = {
     //   - Places API (New)
     googleMapsBrowserKey: 'AIzaSyAWnb6S0zVLvNyv_vXke1gs2Qm68eQFVrY',
 
-    // app.js limits this to localhost and the survey-extrapro development site.
-    devBypassAuth: true
+    // Every device must authenticate before it can see survey data.
+    devBypassAuth: false
 };
 
 const surveyLocalConfig = window.SURVEY_LOCAL_CONFIG || {};

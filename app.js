@@ -18,10 +18,7 @@ let supabaseClient = null;
 let supabaseUrl = String(surveyConfig.supabaseUrl || '').trim();
 let supabaseKey = String(surveyConfig.supabasePublishableKey || '').trim();
 const isLocalDevelopment = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-const isExtraProDevelopment = window.location.hostname === 'sutisukkawaguji-spec.github.io'
-    && (window.location.pathname.startsWith('/Vision-TR/') || window.location.pathname.startsWith('/survey-extrapro/'));
-const DEV_BYPASS_AUTH = (isLocalDevelopment || isExtraProDevelopment)
-    && surveyConfig.devBypassAuth === true;
+const DEV_BYPASS_AUTH = isLocalDevelopment && surveyConfig.devBypassAuth === true;
 
 // Remove the retired cloud-link import preference from older installations.
 try { localStorage.removeItem('survey_geojson_drive_url'); } catch (error) { }
@@ -287,6 +284,14 @@ async function checkAuthSession() {
         }
 
         const { data: { session }, error } = await supabaseClient.auth.getSession();
+
+        // Old production builds created anonymous "Developer" sessions. They
+        // are not valid users of the app, so remove them and show login.
+        if (session?.user?.is_anonymous) {
+            await supabaseClient.auth.signOut();
+            showAuthOverlay(true);
+            return;
+        }
 
         if (isRecovery && session && session.user) {
             // ล้าง hash และ query parameters เพื่อความปลอดภัยและป้องกันกล่องแจ้งเตือนทำงานซ้ำตอนรีเฟรช
@@ -1156,6 +1161,9 @@ function initApp() {
                 radius: isCircle ? radius : 0,
                 layer_type: getActiveSurveyLayerSettings().type,
                 layer_color: getSurveyLayerColorForShape(shape),
+                // A drawing inside a saved free parcel is its own nested
+                // independent parcel, not merely an unnamed sketch.
+                is_independent_child: parentJob.properties?.is_custom_draw === true,
                 status: 'pending',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
@@ -2253,8 +2261,9 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
     if (!job) return;
     const existing = featureId ? job.properties?.survey_features?.find(feature => feature.id === featureId) : null;
     const feature = { ...(existing || draftFeature || {}), form_data: { ...(existing?.form_data || draftFeature?.form_data || {}) } };
+    const isIndependentChild = feature.is_independent_child === true;
     const result = await Swal.fire({
-        title: existing ? 'แก้ไขรูปวาดในแปลง' : 'บันทึกรูปวาดในแปลง',
+        title: existing ? (isIndependentChild ? 'แก้ไขแปลงอิสระย่อย' : 'แก้ไขรูปวาดในแปลง') : (isIndependentChild ? 'บันทึกแปลงอิสระย่อย' : 'บันทึกรูปวาดในแปลง'),
         html: surveyFeatureFormHtml(feature),
         width: 620,
         showCancelButton: true,
@@ -2281,7 +2290,7 @@ async function openSurveyFeatureEditor(jobId, featureId = null, draftFeature = n
         const savedFeature = {
             ...feature,
             id: feature.id || `survey_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            name: result.value.name || `รูปวาด ${current.length + 1}`,
+            name: result.value.name || (isIndependentChild ? `แปลงอิสระ ${current.length + 1}` : `รูปวาด ${current.length + 1}`),
             note: result.value.note,
             form_data: result.value.values,
             form_version: getActiveSurveyForm()?.version || 0,
@@ -2464,7 +2473,7 @@ function renderSurveyFeatureList(job) {
     if (!section || !list || !count) return;
     const features = Array.isArray(job?.properties?.survey_features) ? job.properties.survey_features : [];
     const isIndependentParent = job?.properties?.is_custom_draw === true;
-    if (heading) heading.innerHTML = `<i class="fa-solid fa-diagram-project mr-1"></i>${isIndependentParent ? 'รายการย่อยในแปลงอิสระนี้' : 'รูปวาดในแปลงนี้'}`;
+    if (heading) heading.innerHTML = `<i class="fa-solid fa-diagram-project mr-1"></i>${isIndependentParent ? 'แปลงอิสระย่อยในแปลงนี้' : 'รูปวาดในแปลงนี้'}`;
     count.textContent = `${features.length} ${isIndependentParent ? 'รายการย่อย' : 'รูป'}`;
     section.classList.toggle('hidden', features.length === 0);
     if (features.length === 0) {
@@ -2481,7 +2490,7 @@ function renderSurveyFeatureList(job) {
             <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-[10px] font-bold">${index + 1}</span>
             <button type="button" onclick="focusSurveyFeature('${job.id}', '${feature.id}')" class="min-w-0 flex-1 text-left">
                 <span class="block text-xs font-bold text-slate-700">${v2EscapeHtml(feature.name || label)}</span>
-                <span class="block text-[10px] text-slate-500">${isIndependentParent ? 'รายการย่อย' : label} · ${status} · รูป ${(feature.images || []).length}</span>
+                <span class="block text-[10px] text-slate-500">${isIndependentParent ? 'แปลงอิสระย่อย' : label} · ${status} · รูป ${(feature.images || []).length}</span>
             </button>
             <button type="button" onclick="openSurveyFeatureEditor('${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-blue-600 hover:bg-blue-50" title="แก้ไขรูปวาดนี้" aria-label="แก้ไขรูปวาดนี้"><i class="fa-solid fa-pen"></i></button>
             <button type="button" onclick="deleteSurveyFeatureFromSheet(event, '${job.id}', '${feature.id}')" class="w-9 h-9 rounded-lg text-rose-500 hover:bg-rose-50" title="ลบรูปวาดนี้" aria-label="ลบรูปวาดนี้"><i class="fa-solid fa-trash"></i></button>

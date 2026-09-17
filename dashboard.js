@@ -26,7 +26,7 @@ async function startDashboard() {
   const [groups, people, plots] = await Promise.all([
     dashboardDb.from('work_groups').select('*').eq('team_id', profile.team_id).order('created_at'),
     dashboardDb.from('profiles').select('id,display_name,email,updated_at').eq('team_id', profile.team_id),
-    dashboardDb.from('base_plots').select('id').eq('team_id', profile.team_id)
+    dashboardDb.from('base_plots').select('id,source_properties').eq('team_id', profile.team_id)
   ]);
   dashboardGroups = groups.data || []; dashboardPeople = people.data || []; dashboardPlots = plots.data || [];
   if (!dashboardState.groupId) {
@@ -133,8 +133,9 @@ function dashboardEntryDetail(entry, title) {
 function renderSurveyList() {
   const groups = dashboardRecords.map(record => {
     const props = record.record_properties || {};
-    const main = { record, parentName: props.name || record.base_plot_id || 'แปลงหลัก', name: props.name || 'ข้อมูลแปลงหลัก', note: record.note || props.note || '', form_data: props.form_data || {}, images: record.images || props.images || [], recorded_at: record.recorded_at, updated_at: record.updated_at, isMain: true };
-    const children = (props.survey_features || []).map(feature => ({ ...feature, record, parentName: main.parentName, isMain: false }));
+    const basePlot = dashboardPlots.find(plot => plot.id === record.base_plot_id);
+    const main = { record, parentName: props.name || record.base_plot_id || 'แปลงหลัก', name: props.name || 'ข้อมูลแปลงหลัก', note: record.note || props.note || '', form_data: props.form_data || {}, images: record.images || props.images || [], recorded_at: record.recorded_at, updated_at: record.updated_at, isMain: true, isIndependentParent: basePlot?.source_properties?.is_custom_draw === true };
+    const children = (props.survey_features || []).map(feature => ({ ...feature, is_independent_child: feature.is_independent_child === true || main.isIndependentParent, record, parentName: main.parentName, isMain: false }));
     const matchingChildren = children.filter(entryMatches);
     const matchesMain = entryMatches(main);
     if (!children.length) return matchesMain ? { record, main, children: [], visibleChildren: [] } : null;
@@ -148,10 +149,12 @@ function renderSurveyList() {
     const filtering = Boolean(dashboardState.search || dashboardState.filterField || dashboardState.filterValue);
     const expanded = dashboardExpandedRecords.has(id) || (filtering && group.visibleChildren.length > 0);
     const shownChildren = filtering ? group.visibleChildren : group.children;
-    const childSummary = hasChildren ? `${group.children.length} รายการย่อย${shownChildren.length !== group.children.length ? ` · ตรงเงื่อนไข ${shownChildren.length}` : ''}` : 'ข้อมูลบันทึกแปลงหลัก';
+    const independentChildren = group.children.filter(child => child.is_independent_child === true).length;
+    const childType = independentChildren === group.children.length ? 'แปลงอิสระย่อย' : 'รายการย่อย';
+    const childSummary = hasChildren ? `${group.children.length} ${childType}${shownChildren.length !== group.children.length ? ` · ตรงเงื่อนไข ${shownChildren.length}` : ''}` : 'ข้อมูลบันทึกแปลงหลัก';
     group.shownChildren = shownChildren;
     window.dashboardListGroups.set(id, group);
-    const childHtml = expanded ? `<div class="mt-2 ml-3 pl-3 border-l-2 border-emerald-200 space-y-2">${shownChildren.length ? shownChildren.map((child, index) => `<button type="button" onclick="openDashboardChild('${esc(id)}',${index})" class="w-full text-left rounded-xl bg-emerald-50/50 border border-emerald-100 p-3 hover:bg-emerald-100 transition"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(child.name || `รายการย่อย ${index + 1}`)}</p><p class="text-[10px] text-slate-400">${fmtDate(child.recorded_at || child.updated_at)} · กดเพื่อดูรายละเอียด</p></div><span class="text-xs text-emerald-700">${entryPhotos(child).length} <i class="fa-solid fa-image"></i></span></div></button>`).join('') : '<p class="p-3 text-xs text-slate-400">ไม่มีรายการย่อยที่ตรงกับตัวกรอง</p>'}</div>` : '';
+    const childHtml = expanded ? `<div class="mt-2 ml-3 pl-3 border-l-2 border-emerald-200 space-y-2">${shownChildren.length ? shownChildren.map((child, index) => `<button type="button" onclick="openDashboardChild('${esc(id)}',${index})" class="w-full text-left rounded-xl bg-emerald-50/50 border border-emerald-100 p-3 hover:bg-emerald-100 transition"><div class="flex justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-800 truncate">${esc(child.name || (child.is_independent_child ? `แปลงอิสระ ${index + 1}` : `รายการย่อย ${index + 1}`))}</p><p class="text-[10px] text-slate-400">${child.is_independent_child ? 'แปลงอิสระย่อย · ' : ''}${fmtDate(child.recorded_at || child.updated_at)} · กดเพื่อดูรายละเอียด</p></div><span class="text-xs text-emerald-700">${entryPhotos(child).length} <i class="fa-solid fa-image"></i></span></div></button>`).join('') : '<p class="p-3 text-xs text-slate-400">ไม่มีรายการย่อยที่ตรงกับตัวกรอง</p>'}</div>` : '';
     return `<article class="rounded-xl border border-slate-200 bg-white p-3"><div class="flex items-start gap-2"><button type="button" onclick="toggleSurveyRecord('${esc(id)}')" class="mt-0.5 w-8 h-8 rounded-lg ${hasChildren ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}" ${hasChildren ? '' : 'disabled'}>${hasChildren ? `<i class="fa-solid fa-${expanded ? 'minus' : 'plus'}"></i>` : '<i class="fa-solid fa-file-lines"></i>'}</button><button type="button" onclick="openDashboardRecord('${esc(id)}')" class="min-w-0 flex-1 text-left rounded-lg hover:bg-slate-50 p-1"><p class="text-sm font-bold text-slate-800 truncate">${esc(group.main.parentName)}</p><p class="text-[11px] text-slate-500">${childSummary} · กดเพื่อดูรายละเอียดหลัก</p></button></div>${childHtml}</article>`;
   }).join('') : '<p class="text-center py-10 text-sm text-slate-400">ไม่พบรายการที่ตรงกับเงื่อนไข</p>';
 }
