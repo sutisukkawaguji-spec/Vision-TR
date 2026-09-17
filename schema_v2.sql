@@ -140,9 +140,23 @@ revoke all on function public.add_team_member_by_code(text) from public;
 grant execute on function public.add_team_member_by_code(text) to authenticated;
 
 drop policy if exists base_maps_team_all on public.base_maps;
-create policy base_maps_team_all on public.base_maps for all
+drop policy if exists base_maps_team_select on public.base_maps;
+drop policy if exists base_maps_team_insert on public.base_maps;
+drop policy if exists base_maps_team_update on public.base_maps;
+drop policy if exists base_maps_importer_delete on public.base_maps;
+create policy base_maps_team_select on public.base_maps for select using (
+  team_id = (select p.team_id from public.profiles p where p.id = auth.uid())
+);
+create policy base_maps_team_insert on public.base_maps for insert with check (
+  team_id = (select p.team_id from public.profiles p where p.id = auth.uid())
+);
+create policy base_maps_team_update on public.base_maps for update
   using (team_id = (select p.team_id from public.profiles p where p.id = auth.uid()))
   with check (team_id = (select p.team_id from public.profiles p where p.id = auth.uid()));
+create policy base_maps_importer_delete on public.base_maps for delete using (
+  team_id = (select p.team_id from public.profiles p where p.id = auth.uid())
+  and imported_by = auth.uid()
+);
 
 drop policy if exists base_plots_team_all on public.base_plots;
 create policy base_plots_team_all on public.base_plots for all

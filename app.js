@@ -8901,17 +8901,18 @@ renderImportedMapsList = function () {
         container.innerHTML = '<div class="text-[11px] text-gray-400 text-center py-3">ยังไม่มี Base Map</div>';
         return;
     }
-    container.innerHTML = v2BaseMaps.filter(mapItem => mapItem.source_name !== '__custom_draw__').map(mapItem => `
+    container.innerHTML = v2BaseMaps.filter(mapItem => mapItem.source_name !== '__custom_draw__').map(mapItem => {
+        const canDelete = mapItem.imported_by === currentUser?.id;
+        return `
         <div class="flex items-center justify-between p-2.5 bg-gray-50 rounded-xl border border-gray-100">
             <div class="min-w-0 flex-1">
                 <p class="text-xs font-bold text-gray-700 truncate">${mapItem.name}</p>
                 <p class="text-[10px] text-gray-500 mt-1">${mapItem.feature_count || 0} แปลง · นำเข้า ${v2EscapeHtml(formatBaseMapImportedAt(mapItem.imported_at))}</p>
                 <p class="text-[10px] text-blue-600 mt-0.5"><i class="fa-solid fa-user mr-1"></i>ผู้นำเข้า: ${v2EscapeHtml(mapItem.imported_by_name || 'ไม่ระบุผู้นำเข้า')}</p>
             </div>
-            <button onclick="deleteImportedMap('${mapItem.id}')" class="text-xs text-red-500 p-1.5" title="ลบ Base Map">
-                <i class="fa-solid fa-trash-can"></i>
-            </button>
-        </div>`).join('');
+            ${canDelete ? `<button onclick="deleteImportedMap('${mapItem.id}')" class="text-xs text-red-500 p-1.5" title="ลบ Base Map และผลบันทึกที่เชื่อมอยู่"><i class="fa-solid fa-trash-can"></i></button>` : '<span class="text-[9px] font-bold text-slate-400">ผู้อื่นนำเข้า</span>'}
+        </div>`;
+    }).join('');
 };
 
 async function getBaseMapRecordSummary(baseMapId) {
@@ -8942,6 +8943,9 @@ async function getBaseMapRecordSummary(baseMapId) {
 deleteImportedMap = async function (baseMapId) {
     const baseMap = v2BaseMaps.find(item => item.id === baseMapId);
     if (!baseMap) return;
+    if (baseMap.imported_by !== currentUser?.id) {
+        return Swal.fire('ไม่มีสิทธิ์ลบ Base Map นี้', 'เฉพาะผู้นำเข้า Base Map เท่านั้นที่ลบได้', 'warning');
+    }
     showLoading(true, 'กำลังตรวจสอบข้อมูลที่เชื่อมกับ Base Map...');
     let summary;
     try {
@@ -8951,16 +8955,38 @@ deleteImportedMap = async function (baseMapId) {
         return;
     } finally { showLoading(false); }
 
+    let confirmedLinkedDelete = false;
     if (summary.records.length) {
         const groupRows = summary.groups.map(([name, count]) => `<li>${v2EscapeHtml(name)}: ${count.toLocaleString()} ผลบันทึก</li>`).join('');
-        return Swal.fire({
-            title: 'ยังลบ Base Map ไม่ได้',
+        const confirm = await Swal.fire({
+            title: 'ลบ Base Map พร้อมผลบันทึก?',
             icon: 'warning',
-            html: `<div class="text-left text-sm text-slate-600"><p>Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” มีข้อมูลเชื่อมอยู่ จึงไม่สามารถลบได้</p><div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><ul class="list-disc space-y-1 pl-5"><li>แปลงใน Base Map: <b>${summary.plotCount.toLocaleString()} แปลง</b></li><li>ผลบันทึก/ผลสำรวจ: <b>${summary.records.length.toLocaleString()} รายการ</b></li><li>รูปภาพที่แนบ: <b>${summary.imageCount.toLocaleString()} รูป</b></li></ul></div><p class="mt-3 text-xs font-bold text-slate-700">แยกตามกลุ่มงาน</p><ul class="mt-1 list-disc pl-5 text-xs">${groupRows}</ul><p class="mt-3 text-xs text-rose-700">หากต้องการลบ Base Map นี้ ต้องลบผลบันทึกที่เกี่ยวข้องทั้งหมดก่อน</p></div>`,
-            confirmButtonText: 'รับทราบ'
+            html: `<div class="text-left text-sm text-slate-600"><p>คุณกำลังจะลบ Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” พร้อมข้อมูลที่เชื่อมอยู่</p><div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3"><b class="text-rose-700">ข้อมูลที่จะถูกลบถาวร</b><ul class="mt-1 list-disc space-y-1 pl-5 text-xs"><li>ขอบเขตแปลง: <b>${summary.plotCount.toLocaleString()} แปลง</b></li><li>ผลบันทึก/ผลสำรวจ: <b>${summary.records.length.toLocaleString()} รายการ</b></li><li>ข้อความ หมายเหตุ และรูปภาพ: <b>${summary.imageCount.toLocaleString()} รูป</b></li></ul></div><p class="mt-3 text-xs font-bold text-slate-700">แยกตามกลุ่มงาน</p><ul class="mt-1 list-disc pl-5 text-xs">${groupRows}</ul><p class="mt-3 text-xs text-rose-700">การดำเนินการนี้ไม่สามารถย้อนกลับได้ โปรดสำรองข้อมูลที่ต้องการก่อนลบ</p></div>`,
+            showCancelButton: true,
+            confirmButtonText: `ลบทั้งหมด ${summary.records.length.toLocaleString()} ผลบันทึก`,
+            cancelButtonText: 'ยกเลิก',
+            confirmButtonColor: '#e11d48'
         });
+        if (!confirm.isConfirmed) return;
+        confirmedLinkedDelete = true;
+        showLoading(true, 'กำลังลบผลบันทึกและรูปภาพ...');
+        try {
+            const imagePublicIds = getWorkGroupImagePublicIds(summary.records);
+            await Promise.all(imagePublicIds.map(async publicId => {
+                try { await fetch(GAS_URL + '?publicId=' + encodeURIComponent(publicId), { mode: 'no-cors' }); }
+                catch (error) { console.error('ลบรูปภาพจากคลาวด์ไม่สำเร็จ:', publicId, error); }
+            }));
+            const recordIds = summary.records.map(record => record.id);
+            for (let index = 0; index < recordIds.length; index += 100) {
+                const { error } = await supabaseClient.from('plot_records').delete().in('id', recordIds.slice(index, index + 100));
+                if (error) throw error;
+            }
+        } catch (error) {
+            Swal.fire('ลบผลบันทึกไม่สำเร็จ', error.message, 'error');
+            return;
+        } finally { showLoading(false); }
     }
-    const result = await Swal.fire({
+    const result = confirmedLinkedDelete ? { isConfirmed: true } : await Swal.fire({
         title: 'ลบ Base Map?',
         html: `<p class="text-sm text-slate-600">Base Map “<b>${v2EscapeHtml(baseMap.name)}</b>” มี ${summary.plotCount.toLocaleString()} แปลง และไม่พบผลบันทึกหรือรูปภาพที่เชื่อมอยู่</p><p class="mt-2 text-xs text-rose-700">การลบจะลบขอบเขตแปลงทั้งหมดใน Base Map นี้</p>`,
         icon: 'warning',
@@ -8970,7 +8996,9 @@ deleteImportedMap = async function (baseMapId) {
         confirmButtonColor: '#ef4444'
     });
     if (!result.isConfirmed) return;
+    showLoading(true, 'กำลังลบ Base Map...');
     const { error } = await supabaseClient.from('base_maps').delete().eq('id', baseMapId);
+    showLoading(false);
     if (error) return Swal.fire('ลบ Base Map ไม่สำเร็จ', `ไม่พบผลบันทึกเชื่อมอยู่ แต่ฐานข้อมูลปฏิเสธการลบ: ${v2EscapeHtml(error.message)}`, 'error');
     await syncJobsFromDB(true);
 };
