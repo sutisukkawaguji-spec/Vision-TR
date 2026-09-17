@@ -794,6 +794,17 @@ function findJobById(id) {
 }
 window.findJobById = findJobById;
 
+// Geoman-created drafts live directly on the map, outside markersGroup.  Use
+// the layer's own removal API as well as the map fallback so a saved draft
+// cannot remain underneath its newly rendered permanent marker/boundary.
+function removeDraftDrawingLayer(layer) {
+    if (!layer) return;
+    if (layer.pm && typeof layer.pm.disable === 'function') layer.pm.disable();
+    if (typeof layer.remove === 'function') layer.remove();
+    if (map?.hasLayer?.(layer)) map.removeLayer(layer);
+    if (markersGroup?.hasLayer?.(layer)) markersGroup.removeLayer(layer);
+}
+
 function getFlatCoordinates(layer) {
     try {
         const geojson = layer.toGeoJSON();
@@ -5833,7 +5844,7 @@ async function saveData() {
             const newShapeIndex = window.pendingNewShapes.findIndex(item => item.id === job.id);
             if (newShapeIndex !== -1) window.pendingNewShapes.splice(newShapeIndex, 1);
             window.pendingGeomanUpdates.delete(job.id);
-            if (job.layer && map) map.removeLayer(job.layer);
+            removeDraftDrawingLayer(job.layer);
         } else {
             job.status = 'done';
             job.properties = queuedJob.properties;
@@ -5929,13 +5940,8 @@ async function saveData() {
 
             await saveJobToSupabase(savedJob);
 
-            // Remove temporary layer from map
-            if (job.layer) {
-                if (map && job.layer.pm && typeof job.layer.pm.disable === 'function') {
-                    job.layer.pm.disable();
-                }
-                map.removeLayer(job.layer);
-            }
+            // Remove the draft before rendering the permanent saved layer.
+            removeDraftDrawingLayer(job.layer);
 
             // Remove from local queues
             const newShapeIndex = window.pendingNewShapes.findIndex(x => x.id === job.id);
@@ -5998,13 +6004,8 @@ async function deleteJob() {
                 }
             });
         }
-        // Remove layer from map
-        if (job.layer) {
-            if (map && job.layer.pm && typeof job.layer.pm.disable === 'function') {
-                job.layer.pm.disable();
-            }
-            map.removeLayer(job.layer);
-        }
+        // Remove the unpersisted draft itself, including any Geoman wrapper.
+        removeDraftDrawingLayer(job.layer);
         // Remove from pending queues
         const newShapeIndex = window.pendingNewShapes.findIndex(x => x.id === job.id);
         if (newShapeIndex !== -1) {
