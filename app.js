@@ -2731,6 +2731,20 @@ function markLayerAsBaseMap(layer) {
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
 }
 
+// Leaflet-Geoman supports allowRemoval independently of editing, dragging and
+// rotation.  Saved records remain editable, but must never become targets of
+// the eraser. Drafts explicitly retain the default removable behaviour.
+function setLayerRemovalAllowed(layer, allowed) {
+    const apply = target => {
+        if (!target) return;
+        target.options = target.options || {};
+        target.options.allowRemoval = allowed;
+        target.pm?.setOptions?.({ allowRemoval: allowed });
+    };
+    apply(layer);
+    if (typeof layer?.eachLayer === 'function') layer.eachLayer(apply);
+}
+
 function markLayerAsSurveyDrawing(layer, jobId = null) {
     const mark = target => {
         target.options.pmIgnore = false;
@@ -2741,6 +2755,8 @@ function markLayerAsSurveyDrawing(layer, jobId = null) {
     };
     mark(layer);
     if (typeof layer.eachLayer === 'function') layer.eachLayer(mark);
+    const job = jobId ? findJobById(jobId) : null;
+    setLayerRemovalAllowed(layer, job?.properties?.is_temp === true);
     // A standalone drawing is a Base Plot of its own.  It needs the Geoman
     // change handlers as well, otherwise Edit Layer only changes the temporary
     // map layer and the next render restores the old geometry from Supabase.
@@ -2784,6 +2800,10 @@ function createSurveyFeatureLayer(job, feature) {
 
     const bind = target => {
         target.options.pmIgnore = false;
+        // Child survey drawings are already saved in their parent's record.
+        // Keep Edit Layer available, but reserve deletion for the record list.
+        target.options.allowRemoval = false;
+        target.pm?.setOptions?.({ allowRemoval: false });
         target.surveyFeatureId = feature.id;
         target.parentJobId = job.id;
         // Re-open the same measurement overlay when a saved child drawing
