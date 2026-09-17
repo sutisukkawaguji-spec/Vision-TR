@@ -7256,7 +7256,9 @@ async function onExportWorkGroupChange() {
 function onExportDateModeChange() {
     const dateMode = document.querySelector('input[name="export-date-mode"]:checked')?.value;
     const calendar = document.getElementById('cal-days-grid')?.parentElement?.parentElement;
-    if (calendar) calendar.classList.toggle('opacity-40', dateMode !== 'date');
+    // Keep the calendar clear and readable.  It is simply non-interactive
+    // until the user chooses the date-range export mode.
+    if (calendar) calendar.classList.toggle('pointer-events-none', dateMode !== 'date');
     const action = document.getElementById('cal-action-container');
     if (dateMode !== 'date') action?.classList.add('hidden');
 }
