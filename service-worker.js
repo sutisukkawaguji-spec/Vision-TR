@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vision-tr-v38';
-const APP_SHELL = ['./', './index.html', './app.js?v=3.4.44', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
+const CACHE_NAME = 'vision-tr-v39';
+const APP_SHELL = ['./', './index.html', './app.js?v=3.4.45', './config.js?v=3.2.0', './dashboard.html', './dashboard.js'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all(APP_SHELL.map(url => cache.add(url).catch(() => null)))).then(() => self.skipWaiting()));

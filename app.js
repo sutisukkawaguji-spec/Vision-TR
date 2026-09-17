@@ -1133,24 +1133,16 @@ function initApp() {
             stageSurveyFeatureForSave(layer, parentJob, surveyFeature);
         });
 
-        // Load PM settings from localStorage
-        const enablePm = localStorage.getItem('survey_enable_pm') === 'true';
-        const chkEnablePm = document.getElementById('chk-enable-pm');
-        if (chkEnablePm) chkEnablePm.checked = enablePm;
+        // Drawing and editing are core map controls, so they are always ready.
+        // Older versions stored a switch that could leave every drawing tool
+        // unavailable after reload; keep the legacy flag on for compatibility.
+        localStorage.setItem('survey_enable_pm', 'true');
 
         // Load Speech Enable setting from localStorage
         const isEnabled = localStorage.getItem('survey_speech_enabled') !== 'false';
         const chkEnableSpeech = document.getElementById('chk-enable-speech');
         if (chkEnableSpeech) chkEnableSpeech.checked = isEnabled;
-        const btnTogglePm = document.getElementById('btn-toggle-pm');
-        if (enablePm) {
-            if (btnTogglePm) btnTogglePm.classList.remove('hidden');
-            // Keep the user's last collapsed/expanded choice after a refresh.
-            toggleGeomanToolbar(localStorage.getItem('survey_pm_toolbar_visible') !== 'false');
-        } else {
-            if (btnTogglePm) btnTogglePm.classList.add('hidden');
-            toggleGeomanToolbar(false);
-        }
+        toggleGeomanToolbar(true);
     }
 }
 
@@ -4033,19 +4025,18 @@ let geomanPositioningReady = false;
 
 function positionGeomanToolbars() {
     const container = document.querySelector('.leaflet-bottom.leaflet-right');
-    const btn = document.getElementById('btn-toggle-pm');
+    const fabContainer = document.getElementById('fab-container');
     const mapElement = document.getElementById('map');
-    if (!container || !btn || !mapElement || btn.offsetParent === null) return;
+    if (!container || !fabContainer || !mapElement || fabContainer.offsetParent === null) return;
 
     const mapRect = mapElement.getBoundingClientRect();
-    const btnRect = btn.getBoundingClientRect();
+    const fabRect = fabContainer.getBoundingClientRect();
     const gap = window.matchMedia('(max-width: 599px)').matches ? 8 : 10;
-    // Keep expanded toolbars directly above the toggle button.  Calculating
-    // against the map bounds avoids Leaflet's default bottom edge placing a
-    // toolbar below the trigger after a resize, orientation change, or sheet.
-    const bottom = Math.max(8, mapRect.bottom - btnRect.top + gap);
-    const right = Math.max(8, mapRect.right - btnRect.right);
-    const maxHeight = Math.max(120, btnRect.top - mapRect.top - gap);
+    // Keep the permanent toolbar above the complete FAB stack. Calculating
+    // from the map bounds works after resizing, sheet changes and rotation.
+    const bottom = Math.max(8, mapRect.bottom - fabRect.top + gap);
+    const right = Math.max(8, mapRect.right - fabRect.right);
+    const maxHeight = Math.max(120, fabRect.top - mapRect.top - gap);
 
     container.style.setProperty('bottom', `${Math.round(bottom)}px`, 'important');
     container.style.setProperty('right', `${Math.round(right)}px`, 'important');
@@ -4136,8 +4127,10 @@ function toggleGeomanToolbar(show) {
         isCurrentlyHidden = toolbars[0].classList.contains('hidden');
     }
 
-    let shouldHide = show !== undefined ? !show : !isCurrentlyHidden;
-    localStorage.setItem('survey_pm_toolbar_visible', shouldHide ? 'false' : 'true');
+    // This toolbar is permanently available. Keep this function as a safe
+    // compatibility entry point for old cached buttons/calls.
+    const shouldHide = false;
+    localStorage.setItem('survey_pm_toolbar_visible', 'true');
 
     if (container) {
         if (shouldHide) {
@@ -4176,18 +4169,10 @@ function toggleGeomanToolbar(show) {
 }
 window.toggleGeomanToolbar = toggleGeomanToolbar;
 
-function togglePMEnabledSetting(enabled) {
-    localStorage.setItem('survey_enable_pm', enabled ? 'true' : 'false');
-    const chk = document.getElementById('chk-enable-pm');
-    if (chk) chk.checked = enabled;
-    const btnTogglePm = document.getElementById('btn-toggle-pm');
-    if (enabled) {
-        if (btnTogglePm) btnTogglePm.classList.remove('hidden');
-        toggleGeomanToolbar(true);
-    } else {
-        if (btnTogglePm) btnTogglePm.classList.add('hidden');
-        toggleGeomanToolbar(false);
-    }
+function togglePMEnabledSetting() {
+    // Retained for old cached HTML only: drawing tools must stay available.
+    localStorage.setItem('survey_enable_pm', 'true');
+    toggleGeomanToolbar(true);
 }
 window.togglePMEnabledSetting = togglePMEnabledSetting;
 

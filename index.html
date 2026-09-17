@@ -1525,11 +1525,6 @@
     </button>
 
     <div id="fab-container" class="fab-col">
-        <!-- ปุ่มซ่อน/แสดงเครื่องมืออยู่เหนือปุ่มตั้งค่าเสมอ -->
-        <button id="btn-toggle-pm" class="btn-fab bg-purple-600 text-white" onclick="toggleGeomanToolbar()"
-            title="เปิด/ปิดเครื่องมือวาดและย้ายรูปแปลง" aria-expanded="true">
-            <i class="fa-solid fa-xmark"></i><span class="pm-toggle-label">ซ่อน</span>
-        </button>
         <button class="btn-fab bg-gray-800 text-white" onclick="openToolsMenu()"><i
                 class="fa-solid fa-gear"></i></button>
         <button class="btn-fab bg-blue-500 text-white" onclick="findNearestNewJob()"><i
@@ -1884,18 +1879,6 @@
                                 <i class="fa-solid fa-copy mr-1"></i> คัดลอก
                             </button>
                         </div>
-                    </div>
-
-                    <!-- เปิด/ปิดเครื่องมือวาดรูปแปลง -->
-                    <div class="p-4 border border-gray-200 rounded-2xl flex items-center justify-between bg-gray-50/50">
-                        <div>
-                            <label class="text-xs font-bold text-gray-700 block">เครื่องมือวาดและแก้ไขรูปแปลง</label>
-                            <span class="text-[9px] text-gray-500 block leading-normal">แสดงปุ่มและแถบเครื่องมือสำหรับสร้าง/แก้ไขขอบเขตแปลงที่ดิน</span>
-                        </div>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="chk-enable-pm" class="sr-only peer" onchange="togglePMEnabledSetting(this.checked)">
-                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
                     </div>
 
                     <!-- เปิด/ปิดเสียงพูดนำทางและแจ้งเตือน -->
@@ -2391,7 +2374,7 @@
         }
     </script>
     <script src="config.js?v=3.2.0" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.44" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.45" charset="UTF-8"></script>
 </body>
 
 </html>
