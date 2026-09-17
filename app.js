@@ -929,6 +929,82 @@ if (window.Swal) {
 }
 
 let showPinLabels = localStorage.getItem('survey_show_labels') !== 'false';
+let mapLabelRefreshTimer = null;
+let mapLabelsAreMoving = false;
+
+function getMapLabelLimit() {
+    const zoom = map?.getZoom?.() || 0;
+    if (zoom < 12) return 0;
+    if (zoom < 15) return 20;
+    return 45;
+}
+
+function getJobLabelClass(job) {
+    if (job.status === 'done') return 'job-label job-label-done';
+    if (job.id === selectedJobId && isNavigating) return 'job-label job-label-navigating';
+    return 'job-label job-label-pending';
+}
+
+// Permanent Leaflet tooltips are DOM nodes. Rendering every label (including
+// those outside the screen) makes panning and zooming costly on phones. Keep
+// only a small, viewport-scoped set and always retain the navigation target.
+function refreshMapJobLabels() {
+    if (!map || !markersGroup) return;
+    const bounds = map.getBounds?.();
+    const labelLimit = getMapLabelLimit();
+    const candidates = [];
+
+    markersGroup.eachLayer(layer => {
+        const job = layer._visionLabelJob;
+        if (!job || job.properties?.is_temp === true) return;
+        const isNavigationTarget = isNavigating && job.id === selectedJobId;
+        const shouldConsider = isNavigationTarget || showPinLabels;
+        if (!shouldConsider) {
+            layer.unbindTooltip?.();
+            return;
+        }
+        const lat = Number(job.lat);
+        const lng = Number(job.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            layer.unbindTooltip?.();
+            return;
+        }
+        const latlng = L.latLng(lat, lng);
+        const isVisible = Boolean(bounds?.pad?.(0.08).contains(latlng));
+        if (!isNavigationTarget && (!isVisible || labelLimit === 0)) {
+            layer.unbindTooltip?.();
+            return;
+        }
+        candidates.push({ layer, job, isNavigationTarget });
+    });
+
+    candidates.sort((a, b) => Number(b.isNavigationTarget) - Number(a.isNavigationTarget));
+    const visibleLayers = new Set(candidates.slice(0, Math.max(labelLimit, 1)).map(item => item.layer));
+    candidates.forEach(({ layer, job }) => {
+        if (!visibleLayers.has(layer)) {
+            layer.unbindTooltip?.();
+            return;
+        }
+        layer.unbindTooltip?.();
+        layer.bindTooltip(job.properties?.name || 'ไม่มีชื่อ', {
+            permanent: true,
+            direction: 'top',
+            className: getJobLabelClass(job),
+            offset: [0, -10]
+        });
+    });
+}
+
+function queueMapLabelRefresh(delay = 220) {
+    window.clearTimeout(mapLabelRefreshTimer);
+    mapLabelRefreshTimer = window.setTimeout(refreshMapJobLabels, delay);
+}
+
+function setMapLabelsMoving(isMoving) {
+    mapLabelsAreMoving = isMoving;
+    document.getElementById('map')?.classList.toggle('map-labels-moving', isMoving);
+    if (!isMoving) queueMapLabelRefresh();
+}
 const cloudinaryCloudName = 'dsi3g3dix';
 const cloudinaryUploadPreset = 'survey-extrapro';
 let isGpsActive = false;
@@ -979,6 +1055,8 @@ function initApp() {
     startGpsTracking();
 
     map.on('dragstart', () => { if (isFollowing) toggleGPSFollow(false); });
+    map.on('movestart zoomstart', () => setMapLabelsMoving(true));
+    map.on('moveend zoomend', () => setMapLabelsMoving(false));
 
     map.on('click', () => {
         if (isThreePointRectangleMode) return;
@@ -4877,24 +4955,9 @@ function renderMap(fitBounds = false) {
                 });
             }
 
-            // Bind Tooltip Label according to navigation state
-            let labelClass = 'job-label';
-            if (job.status === 'done') {
-                labelClass += ' job-label-done';
-            } else if (job.id === selectedJobId && isNavigating) {
-                labelClass += ' job-label-navigating';
-            } else {
-                labelClass += ' job-label-pending';
-            }
-
-            if (!isUnfinishedCustomDrawing && ((isNavigating && job.id === selectedJobId) || (!isNavigating && showPinLabels))) {
-                layer.bindTooltip(job.properties.name || 'ไม่มีชื่อ', {
-                    permanent: true,
-                    direction: 'top',
-                    className: labelClass,
-                    offset: [0, -10]
-                });
-            }
+            // Labels are attached after all layers are on the map, so they
+            // can be limited to the visible viewport instead of every record.
+            if (!isUnfinishedCustomDrawing) layer._visionLabelJob = job;
 
             layer.on('click', () => {
                 // Let special drawing tools receive the map click even when
@@ -4925,6 +4988,7 @@ function renderMap(fitBounds = false) {
             map.fitBounds(group.getBounds(), { padding: [50, 50] });
         } catch (e) { }
     }
+    if (!mapLabelsAreMoving) queueMapLabelRefresh(0);
     updateCounter();
 }
 
@@ -8288,7 +8352,7 @@ function togglePinLabels() {
         }
     }
 
-    renderMap();
+    refreshMapJobLabels();
     Swal.fire({ toast: true, icon: 'success', title: showPinLabels ? 'เปิดแสดงป้ายชื่อ' : 'ปิดแสดงป้ายชื่อ', timer: 1500, showConfirmButton: false });
 }
 
