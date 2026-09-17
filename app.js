@@ -3352,7 +3352,11 @@ function getFilteredJobs() {
         const matchA = amphoe === "" || valA === amphoe;
         const matchT = tambon === "" || valT === tambon;
 
-        return matchCat && matchS && matchA && matchT;
+        // A saved hand-drawn pin/boundary is an active survey result. Keep it
+        // visible in its work group even while the Base Map search/filter is
+        // narrowed, otherwise it appears to vanish immediately after save.
+        const isSavedCustomDrawing = p.is_custom_draw === true && j.status === 'done';
+        return matchCat && (isSavedCustomDrawing || (matchS && matchA && matchT));
     });
 }
 
@@ -4299,7 +4303,7 @@ async function cancelAllPendingChanges() {
                 if (map && item.layer.pm && typeof item.layer.pm.disable === 'function') {
                     item.layer.pm.disable();
                 }
-                map.removeLayer(item.layer);
+                removeDraftDrawingLayer(item.layer);
             }
         });
     }
@@ -4422,9 +4426,7 @@ async function saveAllPendingChanges() {
         const shape = window.pendingNewShapes[i];
         const formValues = collectedDetails[i];
 
-        if (shape.layer) {
-            map.removeLayer(shape.layer);
-        }
+        if (shape.layer) removeDraftDrawingLayer(shape.layer);
 
         let finalLat = shape.lat;
         let finalLng = shape.lng;
@@ -4443,10 +4445,12 @@ async function saveAllPendingChanges() {
         const finalId = 'custom_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9) + '_' + i;
 
         const properties = {
+            ...(shape.properties || {}),
             name: formValues.name,
             note: formValues.note,
             date: new Date().toISOString().split('T')[0],
             is_custom_draw: true,
+            is_temp: false,
             navigator_id: null,
             navigator_name: null,
             images: []
