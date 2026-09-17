@@ -3559,9 +3559,10 @@ function renderThreePointRectanglePreview(pointer = null) {
     L.polygon(corners, { color: '#7c3aed', fillColor: '#a78bfa', fillOpacity: .22, weight: 3, interactive: false }).addTo(threePointRectanglePreviewGroup);
     for (let index = 0; index < corners.length; index++) addMapSideLabel(threePointRectanglePreviewGroup, corners[index], corners[(index + 1) % corners.length]);
     const area = calculatePolygonArea(corners);
-    const center = L.polygon(corners).getBounds().getCenter();
-    L.marker(center, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] }) })
-        .bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, { permanent: true, direction: 'center', className: 'ruler-area-tooltip' })
+    const bounds = L.polygon(corners).getBounds();
+    const labelPoint = L.latLng(bounds.getNorth(), bounds.getCenter().lng);
+    L.marker(labelPoint, { interactive: false, keyboard: false, icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] }) })
+        .bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, { permanent: true, direction: 'top', offset: [0, -8], className: 'ruler-area-tooltip' })
         .addTo(threePointRectanglePreviewGroup).openTooltip();
 }
 
@@ -3839,15 +3840,16 @@ function updateRulerGraphics() {
     const area = rulerIsClosed ? calculatePolygonArea(rulerPoints) : 0;
     if (rulerIsClosed) {
         rulerPolygon = L.polygon(rulerPoints, { color: '#6366f1', fillColor: '#818cf8', fillOpacity: 0.25, weight: 2 }).addTo(rulerMarkersGroup);
-        const center = rulerPolygon.getBounds().getCenter();
-        L.marker(center, {
+        const bounds = rulerPolygon.getBounds();
+        const labelPoint = L.latLng(bounds.getNorth(), bounds.getCenter().lng);
+        L.marker(labelPoint, {
             interactive: false,
             keyboard: false,
             icon: L.divIcon({ className: 'ruler-label-anchor', iconSize: [1, 1], iconAnchor: [0, 0] })
         }).bindTooltip(`<div class="ruler-area-main">${formatAreaRaiTH(area)}</div><div class="ruler-area-sqm">${formatAreaSquareMeters(area)}</div>`, {
             permanent: true,
-            direction: 'center',
-            offset: [0, 34],
+            direction: 'top',
+            offset: [0, -8],
             className: 'ruler-area-tooltip'
         }).addTo(rulerMarkersGroup).openTooltip();
     }
@@ -3861,7 +3863,7 @@ function showRulerPanel(distMeters, areaSqMeters, isClosed = false) {
     if (!panel) {
         panel = document.createElement('div');
         panel.id = 'ruler-info-panel';
-        panel.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-[999] bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-indigo-500/40 flex items-center gap-3 text-xs animate-fade-in';
+        panel.className = 'fixed top-36 left-1/2 -translate-x-1/2 z-[999] bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-indigo-500/40 flex items-center gap-3 text-xs animate-fade-in';
         document.body.appendChild(panel);
     }
     
