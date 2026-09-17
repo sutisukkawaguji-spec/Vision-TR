@@ -1865,14 +1865,22 @@ function renderWorkGroupShareControl() {
     const row = document.getElementById('work-group-share-row');
     const checkbox = document.getElementById('chk-work-group-shared');
     if (!row || !checkbox) return;
-    const group = v2WorkGroups.find(item => item.name === currentUser?.category);
+    const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
+    const group = v2WorkGroups.find(item => item.name === selectedName);
     const canShare = isTeamOwner() && Boolean(group);
     row.classList.toggle('hidden', !canShare);
     checkbox.checked = group?.is_shared === true;
 }
 
+function onWorkGroupSelectionChange() {
+    // The checkbox follows only the group selected in the dropdown.
+    renderWorkGroupShareControl();
+}
+window.onWorkGroupSelectionChange = onWorkGroupSelectionChange;
+
 async function toggleActiveWorkGroupSharing(shared) {
-    const group = v2ActiveWorkGroup || v2WorkGroups.find(item => item.name === currentUser?.category);
+    const selectedName = document.getElementById('sel-profile-category')?.value || currentUser?.category;
+    const group = v2WorkGroups.find(item => item.name === selectedName);
     if (!isTeamOwner() || !group) return;
     showLoading(true, shared ? 'กำลังแชร์กลุ่มงานให้ทีม...' : 'กำลังตั้งกลุ่มงานเป็นส่วนตัว...');
     try {
@@ -1881,7 +1889,7 @@ async function toggleActiveWorkGroupSharing(shared) {
             .eq('id', group.id).select().single();
         if (error) throw error;
         v2WorkGroups = v2WorkGroups.map(item => item.id === data.id ? data : item);
-        v2ActiveWorkGroup = data;
+        if (v2ActiveWorkGroup?.id === data.id) v2ActiveWorkGroup = data;
         updateUserInfo();
         Swal.fire({ toast: true, position: 'top', icon: 'success', title: shared ? 'แชร์กลุ่มงานให้ทีมแล้ว' : 'กลุ่มงานเป็นส่วนตัวแล้ว', timer: 1500, showConfirmButton: false });
     } catch (error) {
