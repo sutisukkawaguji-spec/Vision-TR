@@ -1133,11 +1133,11 @@ function initApp() {
         map.pm.setGlobalOptions({
             snappable: true,
             snapDistance: 25, // เพิ่มระยะ Snap เป็น 25px ช่วยให้ปากกา/นิ้วแตะโดนง่ายขึ้น
-            // Keep adding vertices until the user explicitly double-taps the
-            // final point (or presses Enter on a keyboard). A normal tap on a
-            // vertex must never close a free polygon prematurely.
-            finishOn: 'dblclick',
-            finishOnEnter: true,
+            // Do not use dblclick on touch devices: quick taps can be treated
+            // as a double click and close a polygon early. With no automatic
+            // finish event, the user closes it only by tapping the first point.
+            finishOn: null,
+            finishOnEnter: false,
             templineStyle: {
                 color: '#ef4444',
                 weight: 4 // เส้นไกด์ตอนวาดหนาขึ้น เห็นได้ชัดเจนใต้หัวปากกาหรือนิ้วมือ
