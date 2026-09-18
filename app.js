@@ -2009,16 +2009,6 @@ function isMapDrawingInteractionActive() {
     );
 }
 
-// Saved boundaries are interactive so they can be opened and edited. During a
-// drawing action, however, the same boundary must behave like empty map space;
-// otherwise it swallows the tap and Geoman never receives the next vertex.
-function forwardDrawingTapToMap(event) {
-    if (!isMapDrawingInteractionActive() || !map || !event?.latlng) return false;
-    if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
-    map.fire('click', { latlng: event.latlng, originalEvent: event.originalEvent, visionForwardedDrawingTap: true });
-    return true;
-}
-
 function rememberDrawingToolForSave(layer, tool, featureId = null) {
     if (!layer || !tool) return;
     pendingDrawingToolResume = { layer, tool, featureId };
@@ -2340,7 +2330,7 @@ function stageSurveyFeatureForSave(layer, parentJob, feature) {
     const isIndependentParent = parentJob.properties?.is_custom_draw === true;
     layer.bindTooltip?.(isIndependentParent ? 'แตะรายการย่อยอีกครั้งเพื่อบันทึก' : 'แตะรูปแปลงอีกครั้งเพื่อบันทึก', { direction: 'top' });
     layer.on('click', async event => {
-        if (forwardDrawingTapToMap(event) || layer.isOpeningSurveySave) return;
+        if (isMapDrawingInteractionActive() || layer.isOpeningSurveySave) return;
         if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
         markerJustClicked = true;
         layer.isOpeningSurveySave = true;
@@ -2604,7 +2594,7 @@ function stageStandaloneSurveyDrawing({ layer, shape, geometry, lat, lng, radius
     markLayerAsSurveyDrawing(layer, job.id);
     layer.bindTooltip?.('แตะอีกครั้งเพื่อบันทึก', { direction: 'top', className: 'job-label-pending' });
     const openSaveForm = event => {
-        if (forwardDrawingTapToMap(event)) return;
+        if (isMapDrawingInteractionActive()) return;
         if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
         markerJustClicked = true;
         // Let the map's click handler finish first. It can close the sheet
@@ -2807,7 +2797,9 @@ function markLayerAsSurveyDrawing(layer, jobId = null) {
     const mark = target => {
         target.options.pmIgnore = false;
         target.options.interactive = true;
-        target.options.bubblingMouseEvents = false;
+        // Let one native tap bubble to the map while a drawing tool is active.
+        // Manually firing map clicks here caused duplicate vertices on mobile.
+        target.options.bubblingMouseEvents = true;
         if (L.PM && typeof L.PM.reInitLayer === 'function') L.PM.reInitLayer(target);
         if (typeof target.bringToFront === 'function') target.bringToFront();
     };
@@ -2877,7 +2869,7 @@ function createSurveyFeatureLayer(job, feature) {
             updateSurveyFeatureFromLayer(job.id, feature.id, target);
         });
         target.on('click', event => {
-            if (forwardDrawingTapToMap(event)) return;
+            if (isMapDrawingInteractionActive()) return;
 
             // Survey drawings sit above their Base Map plot. Mark this as a layer
             // click so the map click handler consumes it instead of closing the
@@ -5031,9 +5023,9 @@ function renderMap(fitBounds = false) {
             if (!isUnfinishedCustomDrawing) layer._visionLabelJob = job;
 
             layer.on('click', event => {
-                // Let special drawing tools receive the map click even when
-                // their first point is on top of a Base Map polygon.
-                if (forwardDrawingTapToMap(event)) return;
+                // Let native Leaflet bubbling deliver one tap to the drawing
+                // tool even when the tap is on top of a Base Map polygon.
+                if (isMapDrawingInteractionActive()) return;
 
                 markerJustClicked = true;
                 openSheet(job);
