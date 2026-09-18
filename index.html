@@ -1997,9 +1997,16 @@
                             </div>
                             <div class="flex-1 min-w-0">
                                 <h3 class="text-sm font-bold text-violet-900">แบบฟอร์มของกลุ่มงาน</h3>
-                                <p class="text-[10px] text-violet-700">กลุ่มปัจจุบัน: <strong id="form-active-work-group">-</strong></p>
+                                <p class="text-[10px] text-violet-700">กำหนดแบบฟอร์มให้กลุ่มที่เลือกด้านล่าง</p>
                             </div>
                         </div>
+                        <label class="block text-[10px] font-bold text-violet-800">
+                            ใช้แบบฟอร์มกับกลุ่มงาน
+                            <select id="survey-form-work-group" onchange="onSurveyFormWorkGroupChange()" class="mt-1 w-full p-2.5 border border-violet-200 rounded-xl bg-white text-xs">
+                                <option value="">กำลังโหลดกลุ่มงาน...</option>
+                            </select>
+                        </label>
+                        <p class="text-[10px] text-violet-700">กำลังแก้ไขแบบฟอร์มของ: <strong id="form-active-work-group">-</strong></p>
                         <input id="survey-form-name" type="text" placeholder="ชื่อแบบฟอร์ม"
                             class="w-full p-2.5 border border-violet-200 rounded-xl bg-white text-sm outline-none focus:border-violet-500">
                         <div class="grid grid-cols-1 gap-2 items-end">
@@ -2407,7 +2414,7 @@
         }
     </script>
     <script src="config.js?v=3.2.1" charset="UTF-8"></script>
-    <script src="app.js?v=3.4.72" charset="UTF-8"></script>
+    <script src="app.js?v=3.4.74" charset="UTF-8"></script>
 </body>
 
 </html>

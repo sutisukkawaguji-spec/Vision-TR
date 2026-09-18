@@ -3393,11 +3393,9 @@ async function handleVoiceCommand(transcript) {
             const sheet = document.getElementById('sheet');
             if (sheet) { sheet.classList.remove('minimized'); sheet.classList.add('active'); }
             const noteInput = document.getElementById('sheet-note');
-            if (noteInput) {
-                if (noteInput.disabled) enableEdit();
-                noteInput.focus();
-                noteInput.selectionStart = noteInput.selectionEnd = noteInput.value.length;
-            }
+            if (noteInput?.disabled) enableEdit();
+            focusVoiceNoteField();
+            window.setTimeout(focusVoiceNoteField, 260);
             speak("เปิดกล่องบันทึกข้อมูล พร้อมบันทึกหมายเหตุ");
         } else {
             speak("กรุณาเลือกแปลงที่ดินก่อน");
@@ -5068,6 +5066,17 @@ function speak(text, force = false) {
         u.lang = 'th-TH';
         speechSynth.speak(u);
     }
+}
+
+// The sheet animation can briefly steal focus after a voice command. Focus
+// again after it settles so the next dictated text goes directly to notes.
+function focusVoiceNoteField() {
+    const noteInput = document.getElementById('sheet-note');
+    if (!noteInput || noteInput.disabled) return;
+    noteInput.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    noteInput.focus({ preventScroll: true });
+    const end = noteInput.value.length;
+    noteInput.setSelectionRange?.(end, end);
 }
 
 async function startNavigationToPoint(target) {
@@ -6855,8 +6864,15 @@ function migrateSurveyFormValues(values, oldFields, newFields) {
     return { values: output, changed };
 }
 
-async function migrateSavedSurveyFormValues(oldFields, newFields) {
-    const records = v2PlotRecords.filter(record => record.work_group_id === v2ActiveWorkGroup?.id);
+async function migrateSavedSurveyFormValues(oldFields, newFields, workGroupId = v2ActiveWorkGroup?.id) {
+    let records = v2PlotRecords.filter(record => record.work_group_id === workGroupId);
+    // The builder can now edit another visible work group without switching
+    // the map. Fetch that group's records before migrating field definitions.
+    if (workGroupId && workGroupId !== v2ActiveWorkGroup?.id) {
+        const { data, error } = await supabaseClient.from('plot_records').select('*').eq('work_group_id', workGroupId);
+        if (error) throw error;
+        records = data || [];
+    }
     let changedCount = 0;
     for (const record of records) {
         const props = JSON.parse(JSON.stringify(record.record_properties || {}));
@@ -6900,13 +6916,36 @@ function getMappedBaseMapValue(job, field) {
     return typeof rawValue === 'object' ? JSON.stringify(rawValue) : String(rawValue);
 }
 
+function getSurveyFormForWorkGroup(workGroupId) {
+    return v2SurveyForms.find(form => form.work_group_id === workGroupId) || null;
+}
+
+function getSurveyFormBuilderGroup() {
+    const groups = v2VisibleWorkGroups();
+    const selectedId = document.getElementById('survey-form-work-group')?.value || surveyFormBuilderGroupId || v2ActiveWorkGroup?.id;
+    return groups.find(group => group.id === selectedId) || groups.find(group => group.id === v2ActiveWorkGroup?.id) || groups[0] || null;
+}
+
 function loadSurveyFormBuilder() {
-    const form = getActiveSurveyForm();
+    const groups = v2VisibleWorkGroups();
+    const groupSelect = document.getElementById('survey-form-work-group');
+    if (groupSelect) {
+        const desiredId = surveyFormBuilderGroupId && groups.some(group => group.id === surveyFormBuilderGroupId)
+            ? surveyFormBuilderGroupId
+            : v2ActiveWorkGroup?.id;
+        groupSelect.innerHTML = groups.length
+            ? groups.map(group => `<option value="${group.id}">${v2EscapeHtml(group.name)}${group.id === v2ActiveWorkGroup?.id ? ' (กลุ่มที่กำลังใช้งาน)' : ''}</option>`).join('')
+            : '<option value="">ยังไม่มีกลุ่มงาน</option>';
+        groupSelect.value = desiredId || groups[0]?.id || '';
+    }
+    const targetGroup = getSurveyFormBuilderGroup();
+    surveyFormBuilderGroupId = targetGroup?.id || null;
+    const form = getSurveyFormForWorkGroup(targetGroup?.id);
     surveyFormDraftFields = JSON.parse(JSON.stringify(form?.fields || [])).map(field => ({ ...field, type: normalizeSurveyFieldType(field.type) }));
     const groupLabel = document.getElementById('form-active-work-group');
     const nameInput = document.getElementById('survey-form-name');
-    if (groupLabel) groupLabel.textContent = v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป';
-    if (nameInput) nameInput.value = form?.name || `แบบฟอร์ม ${v2ActiveWorkGroup?.name || currentUser?.category || 'ทั่วไป'}`;
+    if (groupLabel) groupLabel.textContent = targetGroup?.name || currentUser?.category || 'ทั่วไป';
+    if (nameInput) nameInput.value = form?.name || `แบบฟอร์ม ${targetGroup?.name || currentUser?.category || 'ทั่วไป'}`;
     const layerTypeInput = document.getElementById('survey-form-layer-type');
     if (layerTypeInput) layerTypeInput.value = normalizeSurveyLayerType(form?.layer_type);
     renderSurveyLayerColorControls(form);
@@ -6921,7 +6960,7 @@ function loadSurveyFormBuilder() {
     const sourceSelect = document.getElementById('copy-form-source');
     if (sourceSelect) {
         const visibleGroupIds = new Set(v2VisibleWorkGroups().map(group => group.id));
-        const sources = v2SurveyForms.filter(item => item.work_group_id !== v2ActiveWorkGroup?.id && visibleGroupIds.has(item.work_group_id) && Array.isArray(item.fields) && item.fields.length);
+        const sources = v2SurveyForms.filter(item => item.work_group_id !== targetGroup?.id && visibleGroupIds.has(item.work_group_id) && Array.isArray(item.fields) && item.fields.length);
         sourceSelect.innerHTML = sources.length
             ? sources.map(item => {
                 const group = v2WorkGroups.find(entry => entry.id === item.work_group_id);
@@ -7069,6 +7108,20 @@ function copySurveyFormFromWorkGroup() {
     renderSurveyFormFieldsList();
 }
 
+async function onSurveyFormWorkGroupChange() {
+    if (isSurveyFormDraftDirty()) {
+        const confirmed = await Swal.fire({ title: 'เปลี่ยนกลุ่มงานสำหรับแบบฟอร์ม?', text: 'การแก้ไขที่ยังไม่ได้บันทึกในกลุ่มเดิมจะไม่ถูกเก็บ', icon: 'warning', showCancelButton: true, confirmButtonText: 'เปลี่ยนกลุ่ม', cancelButtonText: 'อยู่กลุ่มเดิม' });
+        if (!confirmed.isConfirmed) {
+            const select = document.getElementById('survey-form-work-group');
+            if (select) select.value = surveyFormBuilderGroupId || v2ActiveWorkGroup?.id || '';
+            return;
+        }
+    }
+    surveyFormBuilderGroupId = document.getElementById('survey-form-work-group')?.value || null;
+    loadSurveyFormBuilder();
+}
+window.onSurveyFormWorkGroupChange = onSurveyFormWorkGroupChange;
+
 function mapImportedSurveyFieldType(value) {
     const type = String(value || '').trim().toLowerCase();
     if (/textarea|หลายบรรทัด|รายละเอียด/.test(type)) return 'textarea';
@@ -7153,18 +7206,19 @@ function downloadSurveyFormTemplate() {
 
 async function saveSurveyFormDefinition(options = {}) {
     const silent = options.silent === true;
-    if (!v2ActiveWorkGroup || !currentUser) return;
+    const targetGroup = getSurveyFormBuilderGroup();
+    if (!targetGroup || !currentUser) return;
     const name = document.getElementById('survey-form-name')?.value.trim();
     const layerType = normalizeSurveyLayerType(document.getElementById('survey-form-layer-type')?.value);
     const pointColor = normalizeSurveyLayerColor(document.getElementById('survey-form-point-color')?.value);
     const polygonColor = normalizeSurveyLayerColor(document.getElementById('survey-form-polygon-color')?.value);
     if (!name) { Swal.fire('กรุณาตั้งชื่อแบบฟอร์ม', '', 'warning'); return false; }
-    const existing = getActiveSurveyForm();
+    const existing = getSurveyFormForWorkGroup(targetGroup.id);
     const previousFields = JSON.parse(JSON.stringify(existing?.fields || []));
     showLoading(true, 'กำลังบันทึกแบบฟอร์ม...');
     try {
         const payload = {
-            team_id: currentUser.team_id, work_group_id: v2ActiveWorkGroup.id, name,
+            team_id: currentUser.team_id, work_group_id: targetGroup.id, name,
             version: (existing?.version || 0) + 1,
             fields: surveyFormDraftFields.map((field, index) => ({
                 ...field,
@@ -7180,7 +7234,7 @@ async function saveSurveyFormDefinition(options = {}) {
         };
         const { data, error } = await supabaseClient.from('survey_forms').upsert(payload, { onConflict: 'team_id,work_group_id' }).select().single();
         if (error) throw error;
-        const migratedCount = await migrateSavedSurveyFormValues(previousFields, data.fields || []);
+        const migratedCount = await migrateSavedSurveyFormValues(previousFields, data.fields || [], targetGroup.id);
         v2SurveyForms = [...v2SurveyForms.filter(form => form.work_group_id !== data.work_group_id), data];
         if (migratedCount) await syncJobsSilently();
         surveyFormDraftFields = JSON.parse(JSON.stringify(data.fields || []));
@@ -8788,6 +8842,7 @@ let v2ActiveWorkGroup = null;
 let surveyFormDraftFields = [];
 let surveyFormDraftBaseline = '[]';
 let surveyFormNameBaseline = '';
+let surveyFormBuilderGroupId = null;
 let surveyFormLayerSettingsBaseline = '{"type":"both","color":"#10b981"}';
 
 function v2FlattenSearch(value, output = []) {
