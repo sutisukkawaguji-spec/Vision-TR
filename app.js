@@ -3727,7 +3727,11 @@ function bindGeomanEvents(layer, jobId) {
         const keepGeometry = () => {
             queueGeomanUpdate(l, jobId);
             showEditedShapeMeasurements(l, jobId);
-            scheduleCustomDrawingGeometrySave(jobId);
+            // A temporary drawing remains local until its save form is
+            // confirmed. Edit Layer must not silently persist and lock it.
+            if (!findJobById(jobId)?.properties?.is_temp) {
+                scheduleCustomDrawingGeometrySave(jobId);
+            }
             showPendingActionsBar();
         };
         // Show dimensions as soon as this saved polygon is selected for
@@ -3857,7 +3861,9 @@ async function savePendingGeomanUpdates() {
     try {
         for (const [jobId, data] of updates) {
             const job = dbJobs.find(x => x.id === jobId);
-            if (job) {
+            // New drawings are saved only from their detail form (or the
+            // dedicated pending-save flow), never by Edit Layer auto-save.
+            if (job && job.properties?.is_temp !== true) {
                 job.lat = data.lat;
                 job.lng = data.lng;
                 job.geometry = data.geometry;
@@ -6373,6 +6379,20 @@ async function deleteJob({ skipConfirm = false, silent = false } = {}) {
 
         if (!confirm.isConfirmed) return;
 
+        // Older versions could accidentally persist a draft after Edit Layer
+        // was used. Delete that orphan Base Plot too, so it cannot return
+        // after the local draft is erased or after a page refresh.
+        const hasPersistedDraft = v2BasePlots?.some(plot => plot.id === job.id);
+        if (hasPersistedDraft) {
+            try {
+                await deleteJobFromSupabase(job.id);
+            } catch (error) {
+                console.error('Persisted draft cleanup error:', error);
+                if (!silent) Swal.fire('ลบร่างไม่สำเร็จ', error.message || 'ไม่สามารถลบข้อมูลร่างที่ค้างอยู่ได้', 'error');
+                return;
+            }
+        }
+
         // Revoke temporary image blobs
         if (job.properties.images) {
             job.properties.images.forEach(img => {
@@ -6389,6 +6409,9 @@ async function deleteJob({ skipConfirm = false, silent = false } = {}) {
             window.pendingNewShapes.splice(newShapeIndex, 1);
         }
         window.pendingGeomanUpdates.delete(job.id);
+
+        const jobIndex = dbJobs.findIndex(item => item.id === job.id);
+        if (jobIndex !== -1) dbJobs.splice(jobIndex, 1);
 
         clearDrawingMeasurements();
         closeSheet();
