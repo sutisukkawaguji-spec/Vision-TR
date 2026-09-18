@@ -9184,11 +9184,27 @@ saveJobToSupabase = async function (job) {
 };
 
 deleteJobFromSupabase = async function (id) {
-    const plot = v2BasePlots.find(item => item.id === id);
-    if (!plot || !v2ActiveWorkGroup) return;
+    // Edit Layer may refresh the visible jobs before the in-memory Base Plot
+    // cache has caught up.  Never treat that as a successful deletion: load
+    // the plot once from Supabase, then delete the confirmed record/plot.
+    let plot = v2BasePlots.find(item => item.id === id);
+    if (!plot) {
+        const { data, error } = await supabaseClient
+            .from('base_plots')
+            .select('id, source_properties')
+            .eq('id', id)
+            .maybeSingle();
+        if (error) throw error;
+        plot = data;
+    }
+    if (!plot) throw new Error('ไม่พบข้อมูลรูปแปลงที่ต้องการลบ กรุณาลองรีเฟรชข้อมูลแล้วลองอีกครั้ง');
+
     const isCustomDraw = plot.source_properties?.is_custom_draw === true;
     let recordDelete = supabaseClient.from('plot_records').delete().eq('base_plot_id', id);
-    if (!isCustomDraw) recordDelete = recordDelete.eq('work_group_id', v2ActiveWorkGroup.id);
+    if (!isCustomDraw) {
+        if (!v2ActiveWorkGroup) throw new Error('ไม่พบกลุ่มงานที่กำลังใช้งาน จึงยังลบรายการไม่ได้');
+        recordDelete = recordDelete.eq('work_group_id', v2ActiveWorkGroup.id);
+    }
     const { error } = await recordDelete;
     if (error) throw error;
 
@@ -9198,8 +9214,17 @@ deleteJobFromSupabase = async function (id) {
     });
 
     if (isCustomDraw) {
-        const { error: plotError } = await supabaseClient.from('base_plots').delete().eq('id', id);
+        // Request the deleted id back. With a restrictive RLS policy Supabase
+        // can otherwise return no error even though it removed zero rows.
+        const { data: deletedPlots, error: plotError } = await supabaseClient
+            .from('base_plots')
+            .delete()
+            .eq('id', id)
+            .select('id');
         if (plotError) throw plotError;
+        if (!deletedPlots?.length) {
+            throw new Error('ไม่มีสิทธิ์ลบรูปแปลงนี้ หรือข้อมูลถูกเปลี่ยนแปลงโดยผู้ใช้อื่น');
+        }
         v2BasePlots = v2BasePlots.filter(item => item.id !== id);
     }
 };
